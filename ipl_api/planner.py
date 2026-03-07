@@ -536,36 +536,36 @@ def monte_carlo_planner(
     rng = random.Random(seed)
     teams = list(base_state.keys())
 
-    top3_count: Dict[str, int] = {t: 0 for t in teams}
+    top4_count: Dict[str, int] = {t: 0 for t in teams}
     top2_count: Dict[str, int] = {t: 0 for t in teams}
 
-    metas_when_team_top3: Dict[str, List[MatchOutcomeMeta]] = {t: [] for t in teams}
+    metas_when_team_top4: Dict[str, List[MatchOutcomeMeta]] = {t: [] for t in teams}
 
     for _ in range(iterations):
         final_table, all_metas = _run_one(base_state, fixtures, rng, use_nrr)
 
         order = [row["team"] for row in final_table]
-        top3 = set(order[:3])
+        top4 = set(order[:4])
         top2 = set(order[:2])
 
-        for t in top3:
-            top3_count[t] += 1
+        for t in top4:
+            top4_count[t] += 1
         for t in top2:
             top2_count[t] += 1
 
-        for t in top3:
-            metas_when_team_top3[t].extend([m for m in all_metas if m.team == t])
+        for t in top4:
+            metas_when_team_top4[t].extend([m for m in all_metas if m.team == t])
 
-    top3_prob = {t: top3_count[t] / iterations for t in teams}
+    top4_prob = {t: top4_count[t] / iterations for t in teams}
     top2_prob = {t: top2_count[t] / iterations for t in teams}
 
     per_team_requirements: Dict[str, Any] = {}
     for t in teams:
-        metas = metas_when_team_top3[t]
+        metas = metas_when_team_top4[t]
         per_team_requirements[t] = {
             "overall": _summarize_overall(metas, confidence),
             "per_fixture": _summarize_per_fixture(metas, fixtures, confidence),
-            "qualified_samples": top3_count[t],
+            "qualified_samples": top4_count[t],
         }
 
     focus_team_requirements = per_team_requirements.get(
@@ -577,10 +577,10 @@ def monte_carlo_planner(
         "iterations": iterations,
         "seed": seed,
         "use_nrr": use_nrr,
-        "top3_probability": top3_prob,
+        "top4_probability": top4_prob,
         "top2_probability": top2_prob,
         "focus_team": focus_team,
-        "focus_team_success_rate_top3": top3_prob.get(focus_team, 0.0),
+        "focus_team_success_rate_top4": top4_prob.get(focus_team, 0.0),
         "requirements": per_team_requirements,
         "focus_team_requirements": focus_team_requirements,
         "notes": [

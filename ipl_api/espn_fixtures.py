@@ -10,7 +10,7 @@ import requests
 
 from ipl_api.cache import get as cache_get, set as cache_set, make_key as cache_key
 from ipl_api.config import (
-    WPL_SERIES_ID,
+    IPL_SERIES_ID,
     ESPN_FIXTURES_URL_TEMPLATE,
     FIXTURES_CACHE_TTL_SECONDS,
 )
@@ -161,7 +161,7 @@ def fetch_espn_fixtures(season: int, *, use_cache: bool = True) -> Dict[str, Any
         if cached is not None:
             return cached
 
-    url = ESPN_FIXTURES_URL_TEMPLATE.format(series_id=WPL_SERIES_ID, season=season)
+    url = ESPN_FIXTURES_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season)
 
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; IPL-NRR-Sim/1.0)",

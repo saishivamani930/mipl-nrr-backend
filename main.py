@@ -1,4 +1,4 @@
-# main.py (WPL-only)
+# main.py (IPL-only)
 from __future__ import annotations
 
 from datetime import datetime
@@ -15,6 +15,7 @@ from ipl_api.config import (
     STANDINGS_CACHE_TTL_SECONDS,
     FIXTURES_CACHE_TTL_SECONDS,
     CRICKETDATA_ENABLED,
+    IPL_SERIES_ID,
 )
 
 from ipl_api.simulator import (
@@ -44,12 +45,12 @@ from fastapi.middleware.cors import CORSMiddleware
 DEFAULT_SEASON = 2026
 
 # -----------------------
-# App (WPL-only)
+# App (IPL-only)
 # -----------------------
 app = FastAPI(
-    title="WPL NRR Scenario Simulator API",
+    title="IPL NRR Scenario Simulator API",
     version="0.1.0",
-    description="Backend service for WPL NRR simulation, qualification bounds, Monte Carlo planning, and NRR thresholds",
+    description="Backend service for IPL NRR simulation, qualification bounds, Monte Carlo planning, and NRR thresholds",
 )
 app.add_middleware(
     CORSMiddleware,
@@ -115,8 +116,8 @@ def _get_live_standings_cached(season: int) -> Dict[str, Any]:
     Cache-first standings fetch with fresh/stale fallback.
     Returns the standings dict (the same structure your ESPN scraper returns).
     """
-    cache_key_fresh = f"wpl-standings:{season}:fresh"
-    cache_key_stale = f"wpl-standings:{season}:stale"
+    cache_key_fresh = f"ipl-standings:{season}:fresh"
+    cache_key_stale = f"ipl-standings:{season}:stale"
 
     cached_fresh = cache_get(cache_key_fresh)
     if cached_fresh is not None:
@@ -142,7 +143,7 @@ def _get_live_standings_cached(season: int) -> Dict[str, Any]:
             _ensure_season_started(cached_stale, season)
             return cached_stale
 
-        raise HTTPException(status_code=502, detail=f"Unable to fetch WPL standings: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"Unable to fetch IPL standings: {str(e)}")
 
 
 def _load_live_state(season: int):
@@ -159,8 +160,8 @@ def _load_live_state(season: int):
 # -----------------------
 @app.get("/api/standings")
 def get_live_standings(season: int = DEFAULT_SEASON):
-    cache_key_fresh = f"wpl-standings:{season}:fresh"
-    cache_key_stale = f"wpl-standings:{season}:stale"
+    cache_key_fresh = f"ipl-standings:{season}:fresh"
+    cache_key_stale = f"ipl-standings:{season}:stale"
 
     cached_fresh = cache_get(cache_key_fresh)
     if cached_fresh is not None:
@@ -194,7 +195,7 @@ def get_live_standings(season: int = DEFAULT_SEASON):
                 "error": str(e),
                 "data": cached_stale,
             }
-        raise HTTPException(status_code=502, detail=f"Unable to fetch WPL standings: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"Unable to fetch IPL standings: {str(e)}")
 
 
 # -----------------------
@@ -202,7 +203,7 @@ def get_live_standings(season: int = DEFAULT_SEASON):
 # -----------------------
 @app.get("/api/fixtures")
 def get_live_fixtures(season: int = DEFAULT_SEASON):
-    cache_key = f"wpl-fixtures:{season}:fresh"
+    cache_key = f"Ipl-fixtures:{season}:fresh"
 
     cached = cache_get(cache_key)
     if cached is not None:
@@ -246,8 +247,8 @@ def ping_cricket():
 # Simulation Endpoint
 # -----------------------
 class SimulateRequest(BaseModel):
-    team1: str = Field(..., description="Team batting first (e.g., DC-W)")
-    team2: str = Field(..., description="Team batting second (e.g., GG)")
+    team1: str = Field(..., description="Team batting first (e.g., MI)")
+    team2: str = Field(..., description="Team batting second (e.g., CSK)")
     team1_runs: int = Field(..., ge=0)
     team1_overs: str = Field(..., description="e.g. 20.0 or 19.4")
     team2_runs: int = Field(..., ge=0)
@@ -273,8 +274,38 @@ def simulate(req: SimulateRequest, source: Literal["mock", "live"] = "mock", sea
     if t2 not in state:
         raise HTTPException(status_code=400, detail=f"Unknown team2: {t2}")
     if t1 == t2:
-        raise HTTPException(status_code=400, detail="team1 and team2 must be different")
+        raise HTTPException(status_code=400, detail="team1 and team2 must be different")# IPL: each team plays 14 league matches
+    MAX_LEAGUE_MATCHES = 14
 
+    def _get_played(row: Any) -> int:
+        if hasattr(row, "played"):
+            try:
+                return int(row.played)
+            except Exception:
+                return 0
+        if isinstance(row, dict):
+            for k in ("played", "matches"):
+                if k in row:
+                    try:
+                        return int(row[k])
+                    except Exception:
+                        return 0
+        return 0
+
+    t1_played = _get_played(state.get(t1))
+    t2_played = _get_played(state.get(t2))
+
+    if t1_played >= MAX_LEAGUE_MATCHES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{t1} has already completed all {MAX_LEAGUE_MATCHES} league matches. Simulation blocked.",
+        )
+    if t2_played >= MAX_LEAGUE_MATCHES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{t2} has already completed all {MAX_LEAGUE_MATCHES} league matches. Simulation blocked.",
+        )
+    
     try:
         b1 = overs_to_balls(req.team1_overs)
         b2 = overs_to_balls(req.team2_overs)
@@ -342,7 +373,7 @@ class PlanFixtureIn(BaseModel):
 
 
 class MonteCarloPlanRequest(BaseModel):
-    focus_team: str = Field(..., description="Team to evaluate, e.g., DC-W")
+    focus_team: str = Field(..., description="Team to evaluate, e.g., MI")
     fixtures: list[PlanFixtureIn] = Field(default_factory=list)
     iterations: int = Field(3000, ge=100, le=200000)
     seed: int | None = Field(None)
@@ -383,7 +414,7 @@ def plan_montecarlo(
     auto_fixtures_meta = None
 
     if not fixtures_in and source == "live":
-        fx_cache_key = f"wpl-fixtures:{season}:fresh"
+        fx_cache_key = f"ipl-fixtures:{season}:fresh"
         cached_fx = cache_get(fx_cache_key)
 
         if cached_fx is None:
@@ -473,7 +504,7 @@ def plan_montecarlo(
 # (these call thresholds.py which expects base_state=... now)
 # -----------------------
 class ThresholdChaseLossRequest(BaseModel):
-    season: int = Field(DEFAULT_SEASON, description="WPL season year")
+    season: int = Field(DEFAULT_SEASON, description="IPL season year")
     source: Literal["live"] = Field("live", description="Currently only live supported")
 
     chasing_team: str
@@ -510,7 +541,7 @@ def api_chase_loss_min_score(req: ThresholdChaseLossRequest):
 
 
 class ThresholdDefendWinRequest(BaseModel):
-    season: int = Field(DEFAULT_SEASON, description="WPL season year")
+    season: int = Field(DEFAULT_SEASON, description="IPL season year")
     source: Literal["live"] = Field("live", description="Currently only live supported")
 
     defending_team: str
@@ -547,7 +578,7 @@ def api_defend_win_max_opp_score(req: ThresholdDefendWinRequest):
 
 
 class ThresholdChaseWinBallsRequest(BaseModel):
-    season: int = Field(DEFAULT_SEASON, description="WPL season year")
+    season: int = Field(DEFAULT_SEASON, description="IPL season year")
     source: Literal["live"] = Field("live", description="Currently only live supported")
 
     chasing_team: str

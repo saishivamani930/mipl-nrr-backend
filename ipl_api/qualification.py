@@ -4,8 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
 
-# WPL playoffs: Top-3 qualify
-PLAYOFF_SPOTS = 3
+# WPL playoffs: Top-4 qualify
+PLAYOFF_SPOTS = 4
 
 
 @dataclass(frozen=True)
@@ -79,7 +79,7 @@ def _rank_snapshot_points_nrr(table: List[dict]) -> List[dict]:
 
 
 def _top3_cutoff_points(points: Dict[str, int]) -> int:
-    # PLAYOFF_SPOTS-th highest points (points-only snapshot). For WPL, this is 3rd highest.
+    # PLAYOFF_SPOTS-th highest points (points-only snapshot). For IPL, this is 4th highest.
     sorted_pts = sorted(points.values(), reverse=True)
     if not sorted_pts:
         return 0

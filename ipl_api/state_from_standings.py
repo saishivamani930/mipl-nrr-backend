@@ -10,14 +10,13 @@ from ipl_api.points_table import TeamRow
 
 DEBUG_STATE_BUILD = os.getenv("IPL_DEBUG_STATE_BUILD", "0") == "1"
 
-# Accept codes like: GG, UPW, RCB-W, DC-W, MI-W etc.
-_CODE_RE = re.compile(r"^[A-Z]{2,6}(?:-[A-Z])?$")
-
+# Accept codes like: MI, CSK, RCB, KKR, DC, SRH, PBKS, RR, GT, LSG etc.
+_CODE_RE = re.compile(r"^[A-Z]{2,6}$")
 
 def normalize_team_code(team_raw: str) -> str:
     """
-    WPL-only:
-    - Prefer trailing short code if present in the raw string (supports DC-W style).
+    IPL-only:
+    - Prefer trailing short code if present in the raw string (supports MI, CSK, RCB style).
     - Else attempt to find an end-code via regex.
     - Else return cleaned uppercase string.
     """
@@ -73,7 +72,7 @@ def _to_int_or_none(x: object) -> Optional[int]:
 
 def build_state_from_standings(standings: dict) -> Dict[str, TeamRow]:
     """
-    Convert ESPN standings JSON -> internal state (WPL-only).
+    Convert ESPN standings JSON -> internal state (IPL-only).
 
     Rules:
       - Prefer `code` from ESPN scraper if present.

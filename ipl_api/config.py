@@ -31,23 +31,22 @@ CRICKETDATA_ENABLED: bool = _get_env("CRICKETDATA_ENABLED", "0") == "1"
 
 
 # -------------------------
-# ESPN standings + fixtures config (WPL)
+# ESPN standings + fixtures config (IPL)
 # -------------------------
 # Use ESPN "series id" (can change per season)
-WPL_SERIES_ID: str = _get_env("WPL_SERIES_ID", "1510059")  # default from your ESPN Cricinfo URL
+IPL_SERIES_ID: str = _get_env("IPL_SERIES_ID", "1510719")  # default from your ESPN Cricinfo URL
 
 # ESPN points table URL pattern (season-based)
 ESPN_TABLE_URL_TEMPLATE: str = _get_env(
     "ESPN_TABLE_URL_TEMPLATE",
-    "https://www.espn.in/cricket/table/series/{series_id}/season/{season}/womens-premier-league",
+    "https://www.espn.in/cricket/table/series/{series_id}/season/{season}/indian-premier-league",
 )
 
 # ESPN fixtures/scores URL pattern (season-based)
 ESPN_FIXTURES_URL_TEMPLATE: str = _get_env(
     "ESPN_FIXTURES_URL_TEMPLATE",
-    "https://www.espn.in/cricket/scores/series/{series_id}/season/{season}/womens-premier-league",
+    "https://www.espn.in/cricket/scores/series/{series_id}/season/{season}/indian-premier-league",
 )
-
 # Cache TTLs
 STANDINGS_CACHE_TTL_SECONDS: int = _get_env_int("STANDINGS_CACHE_TTL_SECONDS", 120)
 FIXTURES_CACHE_TTL_SECONDS: int = _get_env_int("FIXTURES_CACHE_TTL_SECONDS", 900)
