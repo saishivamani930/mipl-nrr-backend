@@ -124,11 +124,14 @@ def simulate_match(
     # result == "WIN"
     if has_innings:
         if int(team1_runs) > int(team2_runs):
-            winner = team1
+            winner = winner or team1
         elif int(team2_runs) > int(team1_runs):
-            winner = team2
+            winner = winner or team2
         else:
-            raise ValueError("Scores are tied; use result='TIE'")
+            if winner is None:
+                raise ValueError("Scores are tied; use result='TIE'")
+            # Tied scores but winner provided (Super Over result)
+            # NRR calculated on tied scores, winner gets the points
 
     if winner is None:
         raise ValueError("winner is required when result='WIN' and innings do not determine winner")

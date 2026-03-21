@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Literal
+from typing import Any, Dict, Literal, Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -19,8 +19,8 @@ from ipl_api.config import (
 )
 
 from ipl_api.simulator import (
-    create_mock_ipl_table,   # legacy name
-    create_mock_ipl_state,   # legacy name
+    create_mock_ipl_table,
+    create_mock_ipl_state,
     simulate_match,
 )
 
@@ -33,7 +33,6 @@ from ipl_api.espn_standings import StandingsScrapeError, fetch_espn_points_table
 from ipl_api.state_from_standings import build_state_from_standings
 from ipl_api.espn_fixtures import FixturesScrapeError, fetch_espn_fixtures
 
-# Threshold features (your 3 requirements)
 from ipl_api.thresholds import (
     chase_loss_min_score,
     defend_win_max_opp_score,
@@ -44,9 +43,63 @@ from fastapi.middleware.cors import CORSMiddleware
 
 DEFAULT_SEASON = 2026
 
-# -----------------------
-# App (IPL-only)
-# -----------------------
+# Full name -> code mapping for all 10 IPL teams
+IPL_NAME_TO_CODE: Dict[str, str] = {
+    # Full names
+    "chennai super kings": "CSK",
+    "mumbai indians": "MI",
+    "royal challengers bengaluru": "RCB",
+    "royal challengers bangalore": "RCB",
+    "kolkata knight riders": "KKR",
+    "sunrisers hyderabad": "SRH",
+    "rajasthan royals": "RR",
+    "delhi capitals": "DC",
+    "punjab kings": "PBKS",
+    "lucknow super giants": "LSG",
+    "gujarat titans": "GT",
+    # ESPN nicknames
+    "kings": "CSK",
+    "indians": "MI",
+    "mumbai indians": "MI",
+    "riders": "KKR",
+    "sunrisers": "SRH",
+    "royals": "RR",
+    "capitals": "DC",
+    "delhi capitals": "DC",
+    "giants": "LSG",
+    "titans": "GT",
+    "royal challengers": "RCB",
+    # Full ESPN codes
+    "sunrisers hyderabad": "SRH",
+    "delhi capitals": "DC",
+    "mumbai indians": "MI",
+    "royal challengers bengaluru": "RCB",
+}
+def resolve_team_code(raw: str, state: Dict[str, Any]) -> str:
+    """
+    Accept either a code (MI, CSK) or full name (Mumbai Indians).
+    Returns the code if found in state, else raises ValueError.
+    """
+    s = raw.strip()
+    upper = s.upper()
+
+    # Direct code match
+    if upper in state:
+        return upper
+
+    # Full name match
+    code = IPL_NAME_TO_CODE.get(s.lower())
+    if code and code in state:
+        return code
+
+    # Partial match on state keys
+    for key in state:
+        if key in upper or upper in key:
+            return key
+
+    raise ValueError(f"Unknown team: {raw!r}. Known teams: {list(state.keys())}")
+
+
 app = FastAPI(
     title="IPL NRR Scenario Simulator API",
     version="0.1.0",
@@ -59,7 +112,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 
 @app.on_event("startup")
@@ -77,58 +129,33 @@ def health_check():
 # -----------------------
 def _ensure_standings_non_empty(standings: Dict[str, Any], season: int) -> None:
     if not standings.get("teams"):
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                f"Standings scrape returned empty teams for season={season}. "
-                f"Note={standings.get('note')}"
-            ),
-        )
-
-
-def _ensure_season_started(standings: Dict[str, Any], season: int) -> None:
-    teams = standings.get("teams") or []
-    if not teams:
-        return
-
-    all_zero_matches = True
-    for t in teams:
-        try:
-            if int(t.get("matches", 0)) > 0:
-                all_zero_matches = False
-                break
-        except Exception:
-            all_zero_matches = False
-            break
-
-    if all_zero_matches:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Season {season} has not started yet (all teams have matches=0). "
-                f"Standings are placeholder/pre-season. Note={standings.get('note')}"
-            ),
-        )
+        standings["teams"] = [
+            {"team": "Chennai Super Kings", "code": "CSK", "matches": 0, "won": 0, "lost": 0, "points": 0, "nrr": None},
+            {"team": "Mumbai Indians", "code": "MI", "matches": 0, "won": 0, "lost": 0, "points": 0, "nrr": None},
+            {"team": "Royal Challengers Bengaluru", "code": "RCB", "matches": 0, "won": 0, "lost": 0, "points": 0, "nrr": None},
+            {"team": "Kolkata Knight Riders", "code": "KKR", "matches": 0, "won": 0, "lost": 0, "points": 0, "nrr": None},
+            {"team": "Sunrisers Hyderabad", "code": "SRH", "matches": 0, "won": 0, "lost": 0, "points": 0, "nrr": None},
+            {"team": "Rajasthan Royals", "code": "RR", "matches": 0, "won": 0, "lost": 0, "points": 0, "nrr": None},
+            {"team": "Delhi Capitals", "code": "DC", "matches": 0, "won": 0, "lost": 0, "points": 0, "nrr": None},
+            {"team": "Punjab Kings", "code": "PBKS", "matches": 0, "won": 0, "lost": 0, "points": 0, "nrr": None},
+            {"team": "Lucknow Super Giants", "code": "LSG", "matches": 0, "won": 0, "lost": 0, "points": 0, "nrr": None},
+            {"team": "Gujarat Titans", "code": "GT", "matches": 0, "won": 0, "lost": 0, "points": 0, "nrr": None},
+        ]
+        standings["note"] = "pre-season placeholder"
 
 
 def _get_live_standings_cached(season: int) -> Dict[str, Any]:
-    """
-    Cache-first standings fetch with fresh/stale fallback.
-    Returns the standings dict (the same structure your ESPN scraper returns).
-    """
     cache_key_fresh = f"ipl-standings:{season}:fresh"
     cache_key_stale = f"ipl-standings:{season}:stale"
 
     cached_fresh = cache_get(cache_key_fresh)
     if cached_fresh is not None:
         _ensure_standings_non_empty(cached_fresh, season)
-        _ensure_season_started(cached_fresh, season)
         return cached_fresh
 
     try:
         data = fetch_espn_points_table(season)
         _ensure_standings_non_empty(data, season)
-        _ensure_season_started(data, season)
 
         cache_set(cache_key_fresh, data, ttl_seconds=STANDINGS_CACHE_TTL_SECONDS)
         cache_set(cache_key_stale, data, ttl_seconds=24 * 3600)
@@ -137,10 +164,7 @@ def _get_live_standings_cached(season: int) -> Dict[str, Any]:
     except StandingsScrapeError as e:
         cached_stale = cache_get(cache_key_stale)
         if cached_stale is not None:
-            # Stale is acceptable for internal use (planner/thresholds) as fallback.
             _ensure_standings_non_empty(cached_stale, season)
-            # season-start check still applies
-            _ensure_season_started(cached_stale, season)
             return cached_stale
 
         raise HTTPException(status_code=502, detail=f"Unable to fetch IPL standings: {str(e)}")
@@ -154,9 +178,8 @@ def _load_live_state(season: int):
         raise HTTPException(status_code=502, detail=str(e))
 
 
-
 # -----------------------
-# Live standings endpoint (ESPN scrape + cache)
+# Live standings endpoint
 # -----------------------
 @app.get("/api/standings")
 def get_live_standings(season: int = DEFAULT_SEASON):
@@ -166,7 +189,6 @@ def get_live_standings(season: int = DEFAULT_SEASON):
     cached_fresh = cache_get(cache_key_fresh)
     if cached_fresh is not None:
         _ensure_standings_non_empty(cached_fresh, season)
-        _ensure_season_started(cached_fresh, season)
         return {
             "source": cached_fresh.get("source", "espn"),
             "season": season,
@@ -177,7 +199,6 @@ def get_live_standings(season: int = DEFAULT_SEASON):
     try:
         data = fetch_espn_points_table(season)
         _ensure_standings_non_empty(data, season)
-        _ensure_season_started(data, season)
 
         cache_set(cache_key_fresh, data, ttl_seconds=STANDINGS_CACHE_TTL_SECONDS)
         cache_set(cache_key_stale, data, ttl_seconds=24 * 3600)
@@ -199,11 +220,11 @@ def get_live_standings(season: int = DEFAULT_SEASON):
 
 
 # -----------------------
-# Live fixtures endpoint (ESPN scrape + cache)
+# Live fixtures endpoint
 # -----------------------
 @app.get("/api/fixtures")
 def get_live_fixtures(season: int = DEFAULT_SEASON):
-    cache_key = f"Ipl-fixtures:{season}:fresh"
+    cache_key = f"ipl-fixtures:{season}:fresh"
 
     cached = cache_get(cache_key)
     if cached is not None:
@@ -218,7 +239,7 @@ def get_live_fixtures(season: int = DEFAULT_SEASON):
 
 
 # -----------------------
-# Optional: CricketData API ping (guarded)
+# Optional: CricketData API ping
 # -----------------------
 @app.get("/api/ping-cricket")
 def ping_cricket():
@@ -247,18 +268,20 @@ def ping_cricket():
 # Simulation Endpoint
 # -----------------------
 class SimulateRequest(BaseModel):
-    team1: str = Field(..., description="Team batting first (e.g., MI)")
-    team2: str = Field(..., description="Team batting second (e.g., CSK)")
+    team1: str = Field(..., description="Team batting first (e.g., MI or Mumbai Indians)")
+    team2: str = Field(..., description="Team batting second (e.g., CSK or Chennai Super Kings)")
     team1_runs: int = Field(..., ge=0)
     team1_overs: str = Field(..., description="e.g. 20.0 or 19.4")
     team2_runs: int = Field(..., ge=0)
     team2_overs: str = Field(..., description="e.g. 20.0 or 18.2")
-    team1_all_out: bool = Field(False, description="True if team1 got all-out")
-    team2_all_out: bool = Field(False, description="True if team2 got all-out")
+    team1_all_out: bool = Field(False)
+    team2_all_out: bool = Field(False)
+    result: Optional[str] = Field(None, description="WIN, TIE, or NR")
+    winner: Optional[str] = Field(None, description="Winner team code when result=WIN")
 
 
 @app.post("/api/simulate")
-def simulate(req: SimulateRequest, source: Literal["mock", "live"] = "mock", season: int = DEFAULT_SEASON):
+def simulate(req: SimulateRequest, source: Literal["mock", "live"] = "live", season: int = DEFAULT_SEASON):
     if source == "mock":
         state = create_mock_ipl_state()
         table_source = "mock_state"
@@ -266,15 +289,15 @@ def simulate(req: SimulateRequest, source: Literal["mock", "live"] = "mock", sea
         state = _load_live_state(season)
         table_source = "live_standings"
 
-    t1 = req.team1.strip().upper()
-    t2 = req.team2.strip().upper()
+    try:
+        t1 = resolve_team_code(req.team1, state)
+        t2 = resolve_team_code(req.team2, state)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    if t1 not in state:
-        raise HTTPException(status_code=400, detail=f"Unknown team1: {t1}")
-    if t2 not in state:
-        raise HTTPException(status_code=400, detail=f"Unknown team2: {t2}")
     if t1 == t2:
-        raise HTTPException(status_code=400, detail="team1 and team2 must be different")# IPL: each team plays 14 league matches
+        raise HTTPException(status_code=400, detail="team1 and team2 must be different")
+
     MAX_LEAGUE_MATCHES = 14
 
     def _get_played(row: Any) -> int:
@@ -296,16 +319,10 @@ def simulate(req: SimulateRequest, source: Literal["mock", "live"] = "mock", sea
     t2_played = _get_played(state.get(t2))
 
     if t1_played >= MAX_LEAGUE_MATCHES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"{t1} has already completed all {MAX_LEAGUE_MATCHES} league matches. Simulation blocked.",
-        )
+        raise HTTPException(status_code=400, detail=f"{t1} has already completed all {MAX_LEAGUE_MATCHES} league matches.")
     if t2_played >= MAX_LEAGUE_MATCHES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"{t2} has already completed all {MAX_LEAGUE_MATCHES} league matches. Simulation blocked.",
-        )
-    
+        raise HTTPException(status_code=400, detail=f"{t2} has already completed all {MAX_LEAGUE_MATCHES} league matches.")
+
     try:
         b1 = overs_to_balls(req.team1_overs)
         b2 = overs_to_balls(req.team2_overs)
@@ -316,9 +333,6 @@ def simulate(req: SimulateRequest, source: Literal["mock", "live"] = "mock", sea
         raise HTTPException(status_code=400, detail="team1_overs must be between 0.1 and 20.0")
     if b2 <= 0 or b2 > MAX_BALLS_T20:
         raise HTTPException(status_code=400, detail="team2_overs must be between 0.1 and 20.0")
-
-    _ = normalize_innings_balls(b1, req.team1_all_out)
-    _ = normalize_innings_balls(b2, req.team2_all_out)
 
     try:
         updated = simulate_match(
@@ -331,6 +345,8 @@ def simulate(req: SimulateRequest, source: Literal["mock", "live"] = "mock", sea
             team2_overs=req.team2_overs,
             team1_all_out=req.team1_all_out,
             team2_all_out=req.team2_all_out,
+            result=req.result or "WIN",
+            winner=resolve_team_code(req.winner, state) if req.winner else None,
         )
         return {"table_source": table_source, "season": season, "input": req.model_dump(), "updated_table": updated}
     except ValueError as e:
@@ -338,7 +354,7 @@ def simulate(req: SimulateRequest, source: Literal["mock", "live"] = "mock", sea
 
 
 # -----------------------
-# Qualification Bounds Endpoint (mock-table based)
+# Qualification Bounds Endpoint
 # -----------------------
 class FixtureIn(BaseModel):
     team1: str
@@ -369,11 +385,11 @@ BattingFirstMode = Literal["team1", "team2", "toss"]
 class PlanFixtureIn(BaseModel):
     team1: str
     team2: str
-    batting_first_mode: BattingFirstMode = Field("toss", description="team1/team2/toss")
+    batting_first_mode: BattingFirstMode = Field("toss")
 
 
 class MonteCarloPlanRequest(BaseModel):
-    focus_team: str = Field(..., description="Team to evaluate, e.g., MI")
+    focus_team: str = Field(..., description="Team to evaluate, e.g., MI or Mumbai Indians")
     fixtures: list[PlanFixtureIn] = Field(default_factory=list)
     iterations: int = Field(3000, ge=100, le=200000)
     seed: int | None = Field(None)
@@ -396,7 +412,7 @@ def _fixture_label(team1: str, team2: str, mode: BattingFirstMode) -> str:
 @app.post("/api/plan/montecarlo")
 def plan_montecarlo(
     req: MonteCarloPlanRequest,
-    source: Literal["mock", "live"] = "mock",
+    source: Literal["mock", "live"] = "live",
     season: int = DEFAULT_SEASON,
 ):
     if source == "mock":
@@ -406,9 +422,10 @@ def plan_montecarlo(
         base_state = _load_live_state(season)
         table_source = "live_standings"
 
-    focus = req.focus_team.strip().upper()
-    if focus not in base_state:
-        raise HTTPException(status_code=400, detail=f"Unknown focus_team: {req.focus_team}")
+    try:
+        focus = resolve_team_code(req.focus_team, base_state)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     fixtures_in = list(req.fixtures)
     auto_fixtures_meta = None
@@ -439,21 +456,17 @@ def plan_montecarlo(
     if not fixtures_in:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "No fixtures provided, and live fixture scrape returned 0. "
-                "Provide fixtures in request body OR wait until ESPN publishes the schedule for this season."
-            ),
+            detail="No fixtures provided. Add fixtures or wait until ESPN publishes the schedule.",
         )
 
     planner_fixtures: list[PlanFixture] = []
     for f in fixtures_in:
-        t1 = f.team1.strip().upper()
-        t2 = f.team2.strip().upper()
+        try:
+            t1 = resolve_team_code(f.team1, base_state)
+            t2 = resolve_team_code(f.team2, base_state)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
-        if t1 not in base_state:
-            raise HTTPException(status_code=400, detail=f"Unknown team in fixtures: {t1}")
-        if t2 not in base_state:
-            raise HTTPException(status_code=400, detail=f"Unknown team in fixtures: {t2}")
         if t1 == t2:
             raise HTTPException(status_code=400, detail="Fixture team1 and team2 must be different")
 
@@ -478,7 +491,6 @@ def plan_montecarlo(
                 "batting_first_mode": fx.batting_first_mode,
                 "fixture_name": _fixture_name(fx.team1, fx.team2),
                 "fixture_label": _fixture_label(fx.team1, fx.team2, fx.batting_first_mode),
-                "per_fixture_key": f"{i+1}:{fx.team1} vs {fx.team2}",
             }
             for i, fx in enumerate(planner_fixtures)
         ]
@@ -501,32 +513,26 @@ def plan_montecarlo(
 
 # -----------------------
 # NRR Threshold Endpoints
-# (these call thresholds.py which expects base_state=... now)
 # -----------------------
 class ThresholdChaseLossRequest(BaseModel):
-    season: int = Field(DEFAULT_SEASON, description="IPL season year")
-    source: Literal["live"] = Field("live", description="Currently only live supported")
-
+    season: int = Field(DEFAULT_SEASON)
+    source: Literal["live"] = Field("live")
     chasing_team: str
     opponent_team: str
     target_team: str
-
-    target_score: int = Field(..., ge=0, description="Opponent's score to chase (e.g., 150)")
-    assume_chase_balls: int = Field(120, ge=1, le=120, description="Assume chasing side uses these balls (120 = full 20 ov)")
+    target_score: int = Field(..., ge=0)
+    assume_chase_balls: int = Field(120, ge=1, le=120)
 
 
 @app.post("/api/thresholds/chase-loss/min-score")
 def api_chase_loss_min_score(req: ThresholdChaseLossRequest):
-    season = req.season
-    state = _load_live_state(season)
-
-    chasing = req.chasing_team.strip().upper()
-    opp = req.opponent_team.strip().upper()
-    target = req.target_team.strip().upper()
-
-    for x in (chasing, opp, target):
-        if x not in state:
-            raise HTTPException(status_code=400, detail=f"Unknown team: {x}")
+    state = _load_live_state(req.season)
+    try:
+        chasing = resolve_team_code(req.chasing_team, state)
+        opp = resolve_team_code(req.opponent_team, state)
+        target = resolve_team_code(req.target_team, state)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     out = chase_loss_min_score(
         base_state=state,
@@ -536,34 +542,28 @@ def api_chase_loss_min_score(req: ThresholdChaseLossRequest):
         target_score=req.target_score,
         assume_chase_balls=req.assume_chase_balls,
     )
-
-    return {"season": season, "input": req.model_dump(), "result": out}
+    return {"season": req.season, "input": req.model_dump(), "result": out}
 
 
 class ThresholdDefendWinRequest(BaseModel):
-    season: int = Field(DEFAULT_SEASON, description="IPL season year")
-    source: Literal["live"] = Field("live", description="Currently only live supported")
-
+    season: int = Field(DEFAULT_SEASON)
+    source: Literal["live"] = Field("live")
     defending_team: str
     opponent_team: str
     target_team: str
-
-    defending_score: int = Field(..., ge=0, description="Score set by defending team")
-    assume_opp_balls: int = Field(120, ge=1, le=120, description="Assume opponent uses these balls (120 = full 20 ov)")
+    defending_score: int = Field(..., ge=0)
+    opponent_balls: int = Field(120, ge=1, le=120)
 
 
 @app.post("/api/thresholds/defend/max-opp-score")
 def api_defend_win_max_opp_score(req: ThresholdDefendWinRequest):
-    season = req.season
-    state = _load_live_state(season)
-
-    defending = req.defending_team.strip().upper()
-    opp = req.opponent_team.strip().upper()
-    target = req.target_team.strip().upper()
-
-    for x in (defending, opp, target):
-        if x not in state:
-            raise HTTPException(status_code=400, detail=f"Unknown team: {x}")
+    state = _load_live_state(req.season)
+    try:
+        defending = resolve_team_code(req.defending_team, state)
+        opp = resolve_team_code(req.opponent_team, state)
+        target = resolve_team_code(req.target_team, state)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     out = defend_win_max_opp_score(
         base_state=state,
@@ -571,35 +571,29 @@ def api_defend_win_max_opp_score(req: ThresholdDefendWinRequest):
         opponent_team=opp,
         target_team=target,
         defending_score=req.defending_score,
-        assume_opp_balls=req.assume_opp_balls,
+        assume_opp_balls=req.opponent_balls,
     )
-
-    return {"season": season, "input": req.model_dump(), "result": out}
+    return {"season": req.season, "input": req.model_dump(), "result": out}
 
 
 class ThresholdChaseWinBallsRequest(BaseModel):
-    season: int = Field(DEFAULT_SEASON, description="IPL season year")
-    source: Literal["live"] = Field("live", description="Currently only live supported")
-
+    season: int = Field(DEFAULT_SEASON)
+    source: Literal["live"] = Field("live")
     chasing_team: str
     opponent_team: str
     target_team: str
-
-    target_score: int = Field(..., ge=0, description="Target to chase (e.g., 150)")
+    target_score: int = Field(..., ge=0)
 
 
 @app.post("/api/thresholds/chase-win/max-balls")
 def api_chase_win_max_balls(req: ThresholdChaseWinBallsRequest):
-    season = req.season
-    state = _load_live_state(season)
-
-    chasing = req.chasing_team.strip().upper()
-    opp = req.opponent_team.strip().upper()
-    target = req.target_team.strip().upper()
-
-    for x in (chasing, opp, target):
-        if x not in state:
-            raise HTTPException(status_code=400, detail=f"Unknown team: {x}")
+    state = _load_live_state(req.season)
+    try:
+        chasing = resolve_team_code(req.chasing_team, state)
+        opp = resolve_team_code(req.opponent_team, state)
+        target = resolve_team_code(req.target_team, state)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     out = chase_win_max_balls(
         base_state=state,
@@ -608,5 +602,4 @@ def api_chase_win_max_balls(req: ThresholdChaseWinBallsRequest):
         target_team=target,
         target_score=req.target_score,
     )
-
-    return {"season": season, "input": req.model_dump(), "result": out}
+    return {"season": req.season, "input": req.model_dump(), "result": out}

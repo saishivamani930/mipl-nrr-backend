@@ -13,13 +13,31 @@ DEBUG_STATE_BUILD = os.getenv("IPL_DEBUG_STATE_BUILD", "0") == "1"
 # Accept codes like: MI, CSK, RCB, KKR, DC, SRH, PBKS, RR, GT, LSG etc.
 _CODE_RE = re.compile(r"^[A-Z]{2,6}$")
 
+# Full name / partial name → IPL team code mapping
+_TEAM_NAME_MAP: Dict[str, str] = {
+    # Full names
+    "mumbai indians": "MI",
+    "chennai super kings": "CSK",
+    "royal challengers bengaluru": "RCB",
+    "royal challengers bangalore": "RCB",
+    "kolkata knight riders": "KKR",
+    "delhi capitals": "DC",
+    "sunrisers hyderabad": "SRH",
+    "punjab kings": "PBKS",
+    "rajasthan royals": "RR",
+    "gujarat titans": "GT",
+    "lucknow super giants": "LSG",
+    # Partial / alternate names ESPN might use
+    "super kings": "CSK",
+    "knight riders": "KKR",
+    "super giants": "LSG",
+    "royals": "RR",
+    "titans": "GT",
+    "capitals": "DC",
+    "indians": "MI",
+}
+
 def normalize_team_code(team_raw: str) -> str:
-    """
-    IPL-only:
-    - Prefer trailing short code if present in the raw string (supports MI, CSK, RCB style).
-    - Else attempt to find an end-code via regex.
-    - Else return cleaned uppercase string.
-    """
     if team_raw is None:
         return ""
 
@@ -31,18 +49,31 @@ def normalize_team_code(team_raw: str) -> str:
     s = re.sub(r"^\d+\s*", "", s).strip()
     s = re.sub(r"\s+", " ", s).strip()
 
+    # 1. Check if it's already a known short code (MI, CSK, etc.)
     tokens = s.split()
     if tokens:
         last = tokens[-1].strip().upper()
-        if _CODE_RE.fullmatch(last):
+        if _CODE_RE.fullmatch(last) and last in {
+            "MI", "CSK", "RCB", "KKR", "DC", "SRH", "PBKS", "RR", "GT", "LSG"
+        }:
             return last
 
-    m = re.search(r"([A-Z]{2,6}(?:-[A-Z])?)\s*$", s)
-    if m:
-        code = m.group(1).upper()
-        if _CODE_RE.fullmatch(code):
-            return code
+    # 2. Lookup full/partial name (case-insensitive)
+    s_lower = s.lower()
+    # Try exact match first
+    if s_lower in _TEAM_NAME_MAP:
+        return _TEAM_NAME_MAP[s_lower]
+    # Try substring match (longest match wins)
+    best_key = ""
+    best_code = ""
+    for key, code in _TEAM_NAME_MAP.items():
+        if key in s_lower and len(key) > len(best_key):
+            best_key = key
+            best_code = code
+    if best_code:
+        return best_code
 
+    # 3. Fallback: last token uppercased
     return s.strip().upper()
 
 
