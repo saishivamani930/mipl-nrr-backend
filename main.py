@@ -352,7 +352,97 @@ def simulate(req: SimulateRequest, source: Literal["mock", "live"] = "live", sea
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+# -----------------------
+# Batch Simulation Endpoint
+# -----------------------
+class BatchSimulateRequest(BaseModel):
+    matches: list[SimulateRequest] = Field(..., min_length=1)
 
+@app.post("/api/simulate/batch")
+def simulate_batch(req: BatchSimulateRequest, source: Literal["mock", "live"] = "live", season: int = DEFAULT_SEASON):
+    if source == "mock":
+        state = create_mock_ipl_state()
+        table_source = "mock_state"
+    else:
+        state = _load_live_state(season)
+        table_source = "live_standings"
+
+    results = []
+    current_state = state
+
+    for i, match in enumerate(req.matches):
+        try:
+            t1 = resolve_team_code(match.team1, current_state)
+            t2 = resolve_team_code(match.team2, current_state)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Match {i+1}: {str(e)}")
+
+        if t1 == t2:
+            raise HTTPException(status_code=400, detail=f"Match {i+1}: team1 and team2 must be different")
+
+        try:
+            b1 = overs_to_balls(match.team1_overs)
+            b2 = overs_to_balls(match.team2_overs)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Match {i+1}: {str(e)}")
+
+        if b1 <= 0 or b1 > MAX_BALLS_T20:
+            raise HTTPException(status_code=400, detail=f"Match {i+1}: team1_overs must be between 0.1 and 20.0")
+        if b2 <= 0 or b2 > MAX_BALLS_T20:
+            raise HTTPException(status_code=400, detail=f"Match {i+1}: team2_overs must be between 0.1 and 20.0")
+
+        try:
+            updated = simulate_match(
+                state=current_state,
+                team1=t1,
+                team2=t2,
+                team1_runs=match.team1_runs,
+                team1_overs=match.team1_overs,
+                team2_runs=match.team2_runs,
+                team2_overs=match.team2_overs,
+                team1_all_out=match.team1_all_out,
+                team2_all_out=match.team2_all_out,
+                result=match.result or "WIN",
+                winner=resolve_team_code(match.winner, current_state) if match.winner else None,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Match {i+1}: {str(e)}")
+
+        results.append({
+            "match_index": i + 1,
+            "team1": t1,
+            "team2": t2,
+            "updated_table": updated,
+        })
+
+        # Build next state from this match's updated standings
+        from ipl_api.points_table import TeamRow
+        next_state = {}
+        for row in updated:
+            code = row.get("code") or row.get("team")
+            if not code:
+                continue
+            prev = current_state.get(code)
+            if prev is None:
+                continue
+            next_state[code] = TeamRow(
+                team=code,
+                played=row.get("matches", 0),
+                won=row.get("won", 0),
+                lost=row.get("lost", 0),
+                nr=row.get("nr", 0),
+                tied=row.get("tied", 0),
+                points=row.get("points", 0),
+                agg=prev.agg,
+            )
+        current_state = next_state if next_state else current_state
+
+    return {
+        "table_source": table_source,
+        "season": season,
+        "matches_simulated": len(results),
+        "results": results,
+    }
 # -----------------------
 # Qualification Bounds Endpoint
 # -----------------------
