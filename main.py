@@ -406,6 +406,9 @@ def simulate_batch(req: BatchSimulateRequest, source: Literal["mock", "live"] = 
                 winner=resolve_team_code(match.winner, current_state) if match.winner else None,
             )
         except ValueError as e:
+            msg = str(e).lower()
+            if "tied" in msg or "tie" in msg:
+                raise HTTPException(status_code=400, detail=f"Match {i+1} is tied — please select a Super Over winner before simulating multiple matches together.")
             raise HTTPException(status_code=400, detail=f"Match {i+1}: {str(e)}")
 
         results.append({
