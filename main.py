@@ -429,7 +429,7 @@ def simulate_batch(req: BatchSimulateRequest, source: Literal["mock", "live"] = 
                 new_standings["teams"].append({
                     "team": row.get("team", ""),
                     "code": row.get("code", row.get("team", "")),
-                    "matches": row.get("matches", 0),
+                    "matches": row.get("matches", row.get("played", 0)),
                     "won": row.get("won", 0),
                     "lost": row.get("lost", 0),
                     "nr": row.get("nr", 0),
