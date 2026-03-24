@@ -261,7 +261,10 @@ def ping_cricket():
     except CricketDataError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+        raise HTTPException(
+        status_code=500,
+        detail=f"Batch state rebuild failed after match {i+1}: {str(e)}"
+    )
 
 
 # -----------------------
@@ -440,8 +443,10 @@ def simulate_batch(req: BatchSimulateRequest, source: Literal["mock", "live"] = 
             next_state = build_state_from_standings(new_standings)
             if next_state:
                 current_state = next_state
-        except Exception:
-            pass  # Keep current_state if rebuild fails
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Batch state rebuild failed after match {i+1}: {str(e)}")
+        except Exception as e:
+            print("[BATCH ERROR] Failed to build next state:", str(e))
 
     return {
         "table_source": table_source,
