@@ -358,6 +358,7 @@ def simulate(req: SimulateRequest, source: Literal["mock", "live"] = "live", sea
 class BatchSimulateRequest(BaseModel):
     matches: list[SimulateRequest] = Field(..., min_length=1)
 
+
 @app.post("/api/simulate/batch")
 def simulate_batch(req: BatchSimulateRequest, source: Literal["mock", "live"] = "live", season: int = DEFAULT_SEASON):
     if source == "mock":
@@ -418,27 +419,29 @@ def simulate_batch(req: BatchSimulateRequest, source: Literal["mock", "live"] = 
             "updated_table": updated,
         })
 
-        # Build next state from this match's updated standings
-        from ipl_api.points_table import TeamRow
-        next_state = {}
-        for row in updated:
-            code = row.get("code") or row.get("team")
-            if not code:
-                continue
-            prev = current_state.get(code)
-            if prev is None:
-                continue
-            next_state[code] = TeamRow(
-                team=code,
-                played=row.get("matches", 0),
-                won=row.get("won", 0),
-                lost=row.get("lost", 0),
-                nr=row.get("nr", 0),
-                tied=row.get("tied", 0),
-                points=row.get("points", 0),
-                agg=prev.agg,
-            )
-        current_state = next_state if next_state else current_state
+        # Build next state from updated standings using simulate_match's own state builder
+        try:
+            new_standings = {"teams": []}
+            for row in updated:
+                new_standings["teams"].append({
+                    "team": row.get("team", ""),
+                    "code": row.get("code", row.get("team", "")),
+                    "matches": row.get("matches", 0),
+                    "won": row.get("won", 0),
+                    "lost": row.get("lost", 0),
+                    "nr": row.get("nr", 0),
+                    "tied": row.get("tied", 0),
+                    "points": row.get("points", 0),
+                    "runs_for": row.get("runs_for"),
+                    "balls_for": row.get("balls_for"),
+                    "runs_against": row.get("runs_against"),
+                    "balls_against": row.get("balls_against"),
+                })
+            next_state = build_state_from_standings(new_standings)
+            if next_state:
+                current_state = next_state
+        except Exception:
+            pass  # Keep current_state if rebuild fails
 
     return {
         "table_source": table_source,
