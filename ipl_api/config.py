@@ -49,8 +49,8 @@ ESPN_FIXTURES_URL_TEMPLATE: str = _get_env(
     )
 
 ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE: str = _get_env(
-        "ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE",
-        "https://www.espn.in/cricket/fixtures/series/{series_id}/season/{season}/indian-premier-league",
+         "ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE",
+    "https://www.espncricinfo.com/series/ipl-2026-{series_id}/match-schedule-fixtures-and-results",
     )
     # Cache TTLs
 STANDINGS_CACHE_TTL_SECONDS: int = _get_env_int("STANDINGS_CACHE_TTL_SECONDS", 120)
