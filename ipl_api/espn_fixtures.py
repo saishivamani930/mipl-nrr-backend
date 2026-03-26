@@ -336,6 +336,28 @@ def _extract_visible_html_fixtures(html: str) -> List[Dict[str, Any]]:
     return fixtures
 
 
+def _scrape_url(url: str, headers: Dict[str, str]) -> List[Dict[str, Any]]:
+    """Fetch a single ESPN URL and return parsed fixtures."""
+    print(f"[DEBUG] Fetching: {url}", file=sys.stderr)
+    with requests.Session() as s:
+        r = s.get(url, timeout=20, headers=headers, allow_redirects=True)
+        r.raise_for_status()
+        html = r.text
+
+    print(f"[DEBUG] HTML length: {len(html)}", file=sys.stderr)
+
+    try:
+        next_data = _extract_next_data_json(html)
+        fixtures = _extract_from_next_data(next_data)
+        print(f"[DEBUG] Parsed via __NEXT_DATA__: {len(fixtures)} fixtures", file=sys.stderr)
+        return fixtures
+    except FixturesScrapeError as e:
+        print(f"[DEBUG] __NEXT_DATA__ failed ({e}), trying HTML fallback", file=sys.stderr)
+        fixtures = _extract_visible_html_fixtures(html)
+        print(f"[DEBUG] Parsed via HTML fallback: {len(fixtures)} fixtures", file=sys.stderr)
+        return fixtures
+
+
 def fetch_espn_fixtures(season: int, *, use_cache: bool = True) -> Dict[str, Any]:
     if season <= 0:
         raise ValueError("season must be a positive integer")
@@ -346,8 +368,6 @@ def fetch_espn_fixtures(season: int, *, use_cache: bool = True) -> Dict[str, Any
         if cached is not None:
             return cached
 
-    url = ESPN_FIXTURES_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season)
-
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; IPL-NRR-Sim/1.0)",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -355,67 +375,46 @@ def fetch_espn_fixtures(season: int, *, use_cache: bool = True) -> Dict[str, Any
         "Connection": "keep-alive",
     }
 
-    try:
-        with requests.Session() as s:
-            r = s.get(url, timeout=20, headers=headers, allow_redirects=True)
-            r.raise_for_status()
-            html = r.text
-            url_used = r.url
-    except Exception as e:
-        raise FixturesScrapeError(f"ESPN fixtures fetch failed: {e}") from e
-
+    # ── PRIMARY: /fixtures/ page — shows the full upcoming schedule ──
+    schedule_url = ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE.format(
+        series_id=IPL_SERIES_ID, season=season
+    )
+    url_used = schedule_url
     fixtures: List[Dict[str, Any]] = []
-    note = None
     seen_keys: set = set()
+    note = None
 
     try:
-        next_data = _extract_next_data_json(html)
-        fixtures = _extract_from_next_data(next_data)
-        seen_keys = {(f["team1_code"], f["team2_code"], f["date"]) for f in fixtures}
-    except FixturesScrapeError:
-        fixtures = _extract_visible_html_fixtures(html)
+        fixtures = _scrape_url(schedule_url, headers)
         seen_keys = {f["match_id"] for f in fixtures}
-        if not fixtures:
-            note = "Could not parse fixtures from __NEXT_DATA__ or visible HTML."
+    except Exception as e:
+        print(f"[DEBUG] Schedule (fixtures) URL failed: {e}", file=sys.stderr)
+        note = f"Schedule page failed: {e}"
 
-    # Also scrape the schedule page to catch any missing fixtures
+    # ── FALLBACK / SUPPLEMENT: /scores/ page — catches live/recent matches ──
+    scores_url = ESPN_FIXTURES_URL_TEMPLATE.format(
+        series_id=IPL_SERIES_ID, season=season
+    )
     try:
-        schedule_url = ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE.format(
-            series_id=IPL_SERIES_ID, season=season
-        )
-        print(f"[DEBUG] Schedule URL: {schedule_url}", file=sys.stderr)
-
-        with requests.Session() as s:
-            r2 = s.get(schedule_url, timeout=20, headers=headers, allow_redirects=True)
-            r2.raise_for_status()
-            html2 = r2.text
-
-        print(f"[DEBUG] Schedule HTML length: {len(html2)}", file=sys.stderr)
-
-        try:
-            next_data2 = _extract_next_data_json(html2)
-            extra = _extract_from_next_data(next_data2)
-            print(f"[DEBUG] Schedule page fixtures (next_data): {len(extra)}", file=sys.stderr)
-        except FixturesScrapeError as e:
-            print(f"[DEBUG] next_data parse failed: {e}", file=sys.stderr)
-            extra = _extract_visible_html_fixtures(html2)
-            print(f"[DEBUG] Schedule page fixtures (HTML fallback): {len(extra)}", file=sys.stderr)
-
+        extra = _scrape_url(scores_url, headers)
+        added = 0
         for f in extra:
-            print(f"[DEBUG] Schedule fixture: {f.get('date','')[:10]} {f['team1_code']} vs {f['team2_code']}", file=sys.stderr)
-            key = f["match_id"]
-            if key not in seen_keys:
-                seen_keys.add(key)
+            if f["match_id"] not in seen_keys:
+                seen_keys.add(f["match_id"])
                 fixtures.append(f)
+                added += 1
+        print(f"[DEBUG] Scores page added {added} extra fixtures", file=sys.stderr)
+    except Exception as e:
+        print(f"[DEBUG] Scores URL failed: {e}", file=sys.stderr)
 
-        fixtures.sort(key=lambda x: (x.get("date") or "", x["team1_code"], x["team2_code"]))
+    if not fixtures:
+        raise FixturesScrapeError("No fixtures found from either ESPN schedule or scores page")
 
-    except Exception as ex:
-        print(f"[DEBUG] Schedule page exception: {ex}", file=sys.stderr)
+    fixtures.sort(key=lambda x: (x.get("date") or "", x["team1_code"], x["team2_code"]))
 
-    print(f"[DEBUG] Total fixtures after merge: {len(fixtures)}", file=sys.stderr)
+    print(f"[DEBUG] Total fixtures: {len(fixtures)}", file=sys.stderr)
     for f in fixtures:
-        print(f"[DEBUG] FINAL: {f.get('date','')[:10]} {f['team1_code']} vs {f['team2_code']}", file=sys.stderr)
+        print(f"[DEBUG] {f.get('date','')[:10]} {f['team1_code']} vs {f['team2_code']}", file=sys.stderr)
 
     resp = {
         "season": season,
