@@ -28,6 +28,83 @@ def _utc_now_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
 
 
+# ── Full IPL 2026 league schedule (all 70 matches) ──
+# Source: BCCI official announcement, March 26 2026
+# Used as fallback when ESPN scraping returns incomplete data
+HARDCODED_IPL_2026_FIXTURES: List[Dict[str, Any]] = [
+    {"match_id": "RCB-SRH-2026-03-28T19:30:00+05:30", "date": "2026-03-28T19:30:00+05:30", "team1": "Royal Challengers Bengaluru", "team2": "Sunrisers Hyderabad", "team1_code": "RCB", "team2_code": "SRH", "status": "upcoming", "venue": "Bengaluru"},
+    {"match_id": "MI-KKR-2026-03-29T19:30:00+05:30", "date": "2026-03-29T19:30:00+05:30", "team1": "Mumbai Indians", "team2": "Kolkata Knight Riders", "team1_code": "MI", "team2_code": "KKR", "status": "upcoming", "venue": "Mumbai"},
+    {"match_id": "RR-CSK-2026-03-30T19:30:00+05:30", "date": "2026-03-30T19:30:00+05:30", "team1": "Rajasthan Royals", "team2": "Chennai Super Kings", "team1_code": "RR", "team2_code": "CSK", "status": "upcoming", "venue": "Guwahati"},
+    {"match_id": "PBKS-GT-2026-03-31T19:30:00+05:30", "date": "2026-03-31T19:30:00+05:30", "team1": "Punjab Kings", "team2": "Gujarat Titans", "team1_code": "PBKS", "team2_code": "GT", "status": "upcoming", "venue": "New Chandigarh"},
+    {"match_id": "LSG-DC-2026-04-01T19:30:00+05:30", "date": "2026-04-01T19:30:00+05:30", "team1": "Lucknow Super Giants", "team2": "Delhi Capitals", "team1_code": "LSG", "team2_code": "DC", "status": "upcoming", "venue": "Lucknow"},
+    {"match_id": "KKR-SRH-2026-04-02T19:30:00+05:30", "date": "2026-04-02T19:30:00+05:30", "team1": "Kolkata Knight Riders", "team2": "Sunrisers Hyderabad", "team1_code": "KKR", "team2_code": "SRH", "status": "upcoming", "venue": "Kolkata"},
+    {"match_id": "CSK-PBKS-2026-04-03T19:30:00+05:30", "date": "2026-04-03T19:30:00+05:30", "team1": "Chennai Super Kings", "team2": "Punjab Kings", "team1_code": "CSK", "team2_code": "PBKS", "status": "upcoming", "venue": "Chennai"},
+    {"match_id": "DC-MI-2026-04-04T15:30:00+05:30", "date": "2026-04-04T15:30:00+05:30", "team1": "Delhi Capitals", "team2": "Mumbai Indians", "team1_code": "DC", "team2_code": "MI", "status": "upcoming", "venue": "Delhi"},
+    {"match_id": "GT-RR-2026-04-04T19:30:00+05:30", "date": "2026-04-04T19:30:00+05:30", "team1": "Gujarat Titans", "team2": "Rajasthan Royals", "team1_code": "GT", "team2_code": "RR", "status": "upcoming", "venue": "Ahmedabad"},
+    {"match_id": "SRH-LSG-2026-04-05T15:30:00+05:30", "date": "2026-04-05T15:30:00+05:30", "team1": "Sunrisers Hyderabad", "team2": "Lucknow Super Giants", "team1_code": "SRH", "team2_code": "LSG", "status": "upcoming", "venue": "Hyderabad"},
+    {"match_id": "RCB-CSK-2026-04-05T19:30:00+05:30", "date": "2026-04-05T19:30:00+05:30", "team1": "Royal Challengers Bengaluru", "team2": "Chennai Super Kings", "team1_code": "RCB", "team2_code": "CSK", "status": "upcoming", "venue": "Bengaluru"},
+    {"match_id": "KKR-PBKS-2026-04-06T19:30:00+05:30", "date": "2026-04-06T19:30:00+05:30", "team1": "Kolkata Knight Riders", "team2": "Punjab Kings", "team1_code": "KKR", "team2_code": "PBKS", "status": "upcoming", "venue": "Kolkata"},
+    {"match_id": "RR-MI-2026-04-07T19:30:00+05:30", "date": "2026-04-07T19:30:00+05:30", "team1": "Rajasthan Royals", "team2": "Mumbai Indians", "team1_code": "RR", "team2_code": "MI", "status": "upcoming", "venue": "Guwahati"},
+    {"match_id": "DC-GT-2026-04-08T19:30:00+05:30", "date": "2026-04-08T19:30:00+05:30", "team1": "Delhi Capitals", "team2": "Gujarat Titans", "team1_code": "DC", "team2_code": "GT", "status": "upcoming", "venue": "Delhi"},
+    {"match_id": "KKR-LSG-2026-04-09T19:30:00+05:30", "date": "2026-04-09T19:30:00+05:30", "team1": "Kolkata Knight Riders", "team2": "Lucknow Super Giants", "team1_code": "KKR", "team2_code": "LSG", "status": "upcoming", "venue": "Kolkata"},
+    {"match_id": "RR-RCB-2026-04-10T19:30:00+05:30", "date": "2026-04-10T19:30:00+05:30", "team1": "Rajasthan Royals", "team2": "Royal Challengers Bengaluru", "team1_code": "RR", "team2_code": "RCB", "status": "upcoming", "venue": "Guwahati"},
+    {"match_id": "PBKS-SRH-2026-04-11T15:30:00+05:30", "date": "2026-04-11T15:30:00+05:30", "team1": "Punjab Kings", "team2": "Sunrisers Hyderabad", "team1_code": "PBKS", "team2_code": "SRH", "status": "upcoming", "venue": "New Chandigarh"},
+    {"match_id": "CSK-DC-2026-04-11T19:30:00+05:30", "date": "2026-04-11T19:30:00+05:30", "team1": "Chennai Super Kings", "team2": "Delhi Capitals", "team1_code": "CSK", "team2_code": "DC", "status": "upcoming", "venue": "Chennai"},
+    {"match_id": "LSG-GT-2026-04-12T15:30:00+05:30", "date": "2026-04-12T15:30:00+05:30", "team1": "Lucknow Super Giants", "team2": "Gujarat Titans", "team1_code": "LSG", "team2_code": "GT", "status": "upcoming", "venue": "Lucknow"},
+    {"match_id": "MI-RCB-2026-04-12T19:30:00+05:30", "date": "2026-04-12T19:30:00+05:30", "team1": "Mumbai Indians", "team2": "Royal Challengers Bengaluru", "team1_code": "MI", "team2_code": "RCB", "status": "upcoming", "venue": "Mumbai"},
+    {"match_id": "SRH-RR-2026-04-13T19:30:00+05:30", "date": "2026-04-13T19:30:00+05:30", "team1": "Sunrisers Hyderabad", "team2": "Rajasthan Royals", "team1_code": "SRH", "team2_code": "RR", "status": "upcoming", "venue": "Hyderabad"},
+    {"match_id": "CSK-KKR-2026-04-14T19:30:00+05:30", "date": "2026-04-14T19:30:00+05:30", "team1": "Chennai Super Kings", "team2": "Kolkata Knight Riders", "team1_code": "CSK", "team2_code": "KKR", "status": "upcoming", "venue": "Chennai"},
+    {"match_id": "RCB-LSG-2026-04-15T19:30:00+05:30", "date": "2026-04-15T19:30:00+05:30", "team1": "Royal Challengers Bengaluru", "team2": "Lucknow Super Giants", "team1_code": "RCB", "team2_code": "LSG", "status": "upcoming", "venue": "Bengaluru"},
+    {"match_id": "MI-PBKS-2026-04-16T19:30:00+05:30", "date": "2026-04-16T19:30:00+05:30", "team1": "Mumbai Indians", "team2": "Punjab Kings", "team1_code": "MI", "team2_code": "PBKS", "status": "upcoming", "venue": "Mumbai"},
+    {"match_id": "GT-KKR-2026-04-17T19:30:00+05:30", "date": "2026-04-17T19:30:00+05:30", "team1": "Gujarat Titans", "team2": "Kolkata Knight Riders", "team1_code": "GT", "team2_code": "KKR", "status": "upcoming", "venue": "Ahmedabad"},
+    {"match_id": "RCB-DC-2026-04-18T15:30:00+05:30", "date": "2026-04-18T15:30:00+05:30", "team1": "Royal Challengers Bengaluru", "team2": "Delhi Capitals", "team1_code": "RCB", "team2_code": "DC", "status": "upcoming", "venue": "Bengaluru"},
+    {"match_id": "SRH-CSK-2026-04-18T19:30:00+05:30", "date": "2026-04-18T19:30:00+05:30", "team1": "Sunrisers Hyderabad", "team2": "Chennai Super Kings", "team1_code": "SRH", "team2_code": "CSK", "status": "upcoming", "venue": "Hyderabad"},
+    {"match_id": "KKR-RR-2026-04-19T15:30:00+05:30", "date": "2026-04-19T15:30:00+05:30", "team1": "Kolkata Knight Riders", "team2": "Rajasthan Royals", "team1_code": "KKR", "team2_code": "RR", "status": "upcoming", "venue": "Kolkata"},
+    {"match_id": "PBKS-LSG-2026-04-19T19:30:00+05:30", "date": "2026-04-19T19:30:00+05:30", "team1": "Punjab Kings", "team2": "Lucknow Super Giants", "team1_code": "PBKS", "team2_code": "LSG", "status": "upcoming", "venue": "New Chandigarh"},
+    {"match_id": "GT-MI-2026-04-20T19:30:00+05:30", "date": "2026-04-20T19:30:00+05:30", "team1": "Gujarat Titans", "team2": "Mumbai Indians", "team1_code": "GT", "team2_code": "MI", "status": "upcoming", "venue": "Ahmedabad"},
+    {"match_id": "SRH-DC-2026-04-21T19:30:00+05:30", "date": "2026-04-21T19:30:00+05:30", "team1": "Sunrisers Hyderabad", "team2": "Delhi Capitals", "team1_code": "SRH", "team2_code": "DC", "status": "upcoming", "venue": "Hyderabad"},
+    {"match_id": "LSG-RR-2026-04-22T19:30:00+05:30", "date": "2026-04-22T19:30:00+05:30", "team1": "Lucknow Super Giants", "team2": "Rajasthan Royals", "team1_code": "LSG", "team2_code": "RR", "status": "upcoming", "venue": "Lucknow"},
+    {"match_id": "MI-CSK-2026-04-23T19:30:00+05:30", "date": "2026-04-23T19:30:00+05:30", "team1": "Mumbai Indians", "team2": "Chennai Super Kings", "team1_code": "MI", "team2_code": "CSK", "status": "upcoming", "venue": "Mumbai"},
+    {"match_id": "RCB-GT-2026-04-24T19:30:00+05:30", "date": "2026-04-24T19:30:00+05:30", "team1": "Royal Challengers Bengaluru", "team2": "Gujarat Titans", "team1_code": "RCB", "team2_code": "GT", "status": "upcoming", "venue": "Bengaluru"},
+    {"match_id": "DC-PBKS-2026-04-25T15:30:00+05:30", "date": "2026-04-25T15:30:00+05:30", "team1": "Delhi Capitals", "team2": "Punjab Kings", "team1_code": "DC", "team2_code": "PBKS", "status": "upcoming", "venue": "Delhi"},
+    {"match_id": "RR-SRH-2026-04-25T19:30:00+05:30", "date": "2026-04-25T19:30:00+05:30", "team1": "Rajasthan Royals", "team2": "Sunrisers Hyderabad", "team1_code": "RR", "team2_code": "SRH", "status": "upcoming", "venue": "Jaipur"},
+    {"match_id": "GT-CSK-2026-04-26T15:30:00+05:30", "date": "2026-04-26T15:30:00+05:30", "team1": "Gujarat Titans", "team2": "Chennai Super Kings", "team1_code": "GT", "team2_code": "CSK", "status": "upcoming", "venue": "Ahmedabad"},
+    {"match_id": "LSG-KKR-2026-04-26T19:30:00+05:30", "date": "2026-04-26T19:30:00+05:30", "team1": "Lucknow Super Giants", "team2": "Kolkata Knight Riders", "team1_code": "LSG", "team2_code": "KKR", "status": "upcoming", "venue": "Lucknow"},
+    {"match_id": "DC-RCB-2026-04-27T19:30:00+05:30", "date": "2026-04-27T19:30:00+05:30", "team1": "Delhi Capitals", "team2": "Royal Challengers Bengaluru", "team1_code": "DC", "team2_code": "RCB", "status": "upcoming", "venue": "Delhi"},
+    {"match_id": "PBKS-RR-2026-04-28T19:30:00+05:30", "date": "2026-04-28T19:30:00+05:30", "team1": "Punjab Kings", "team2": "Rajasthan Royals", "team1_code": "PBKS", "team2_code": "RR", "status": "upcoming", "venue": "New Chandigarh"},
+    {"match_id": "MI-SRH-2026-04-29T19:30:00+05:30", "date": "2026-04-29T19:30:00+05:30", "team1": "Mumbai Indians", "team2": "Sunrisers Hyderabad", "team1_code": "MI", "team2_code": "SRH", "status": "upcoming", "venue": "Mumbai"},
+    {"match_id": "GT-RCB-2026-04-30T19:30:00+05:30", "date": "2026-04-30T19:30:00+05:30", "team1": "Gujarat Titans", "team2": "Royal Challengers Bengaluru", "team1_code": "GT", "team2_code": "RCB", "status": "upcoming", "venue": "Ahmedabad"},
+    {"match_id": "RR-DC-2026-05-01T19:30:00+05:30", "date": "2026-05-01T19:30:00+05:30", "team1": "Rajasthan Royals", "team2": "Delhi Capitals", "team1_code": "RR", "team2_code": "DC", "status": "upcoming", "venue": "Jaipur"},
+    {"match_id": "CSK-MI-2026-05-02T19:30:00+05:30", "date": "2026-05-02T19:30:00+05:30", "team1": "Chennai Super Kings", "team2": "Mumbai Indians", "team1_code": "CSK", "team2_code": "MI", "status": "upcoming", "venue": "Chennai"},
+    {"match_id": "SRH-KKR-2026-05-03T15:30:00+05:30", "date": "2026-05-03T15:30:00+05:30", "team1": "Sunrisers Hyderabad", "team2": "Kolkata Knight Riders", "team1_code": "SRH", "team2_code": "KKR", "status": "upcoming", "venue": "Hyderabad"},
+    {"match_id": "GT-PBKS-2026-05-03T19:30:00+05:30", "date": "2026-05-03T19:30:00+05:30", "team1": "Gujarat Titans", "team2": "Punjab Kings", "team1_code": "GT", "team2_code": "PBKS", "status": "upcoming", "venue": "Ahmedabad"},
+    {"match_id": "MI-LSG-2026-05-04T19:30:00+05:30", "date": "2026-05-04T19:30:00+05:30", "team1": "Mumbai Indians", "team2": "Lucknow Super Giants", "team1_code": "MI", "team2_code": "LSG", "status": "upcoming", "venue": "Mumbai"},
+    {"match_id": "DC-CSK-2026-05-05T19:30:00+05:30", "date": "2026-05-05T19:30:00+05:30", "team1": "Delhi Capitals", "team2": "Chennai Super Kings", "team1_code": "DC", "team2_code": "CSK", "status": "upcoming", "venue": "Delhi"},
+    {"match_id": "SRH-PBKS-2026-05-06T19:30:00+05:30", "date": "2026-05-06T19:30:00+05:30", "team1": "Sunrisers Hyderabad", "team2": "Punjab Kings", "team1_code": "SRH", "team2_code": "PBKS", "status": "upcoming", "venue": "Hyderabad"},
+    {"match_id": "LSG-RCB-2026-05-07T19:30:00+05:30", "date": "2026-05-07T19:30:00+05:30", "team1": "Lucknow Super Giants", "team2": "Royal Challengers Bengaluru", "team1_code": "LSG", "team2_code": "RCB", "status": "upcoming", "venue": "Lucknow"},
+    {"match_id": "DC-KKR-2026-05-08T19:30:00+05:30", "date": "2026-05-08T19:30:00+05:30", "team1": "Delhi Capitals", "team2": "Kolkata Knight Riders", "team1_code": "DC", "team2_code": "KKR", "status": "upcoming", "venue": "Delhi"},
+    {"match_id": "RR-GT-2026-05-09T19:30:00+05:30", "date": "2026-05-09T19:30:00+05:30", "team1": "Rajasthan Royals", "team2": "Gujarat Titans", "team1_code": "RR", "team2_code": "GT", "status": "upcoming", "venue": "Jaipur"},
+    {"match_id": "CSK-LSG-2026-05-10T15:30:00+05:30", "date": "2026-05-10T15:30:00+05:30", "team1": "Chennai Super Kings", "team2": "Lucknow Super Giants", "team1_code": "CSK", "team2_code": "LSG", "status": "upcoming", "venue": "Chennai"},
+    {"match_id": "RCB-MI-2026-05-10T19:30:00+05:30", "date": "2026-05-10T19:30:00+05:30", "team1": "Royal Challengers Bengaluru", "team2": "Mumbai Indians", "team1_code": "RCB", "team2_code": "MI", "status": "upcoming", "venue": "Raipur"},
+    {"match_id": "PBKS-DC-2026-05-11T19:30:00+05:30", "date": "2026-05-11T19:30:00+05:30", "team1": "Punjab Kings", "team2": "Delhi Capitals", "team1_code": "PBKS", "team2_code": "DC", "status": "upcoming", "venue": "Dharamshala"},
+    {"match_id": "GT-SRH-2026-05-12T19:30:00+05:30", "date": "2026-05-12T19:30:00+05:30", "team1": "Gujarat Titans", "team2": "Sunrisers Hyderabad", "team1_code": "GT", "team2_code": "SRH", "status": "upcoming", "venue": "Ahmedabad"},
+    {"match_id": "RCB-KKR-2026-05-13T19:30:00+05:30", "date": "2026-05-13T19:30:00+05:30", "team1": "Royal Challengers Bengaluru", "team2": "Kolkata Knight Riders", "team1_code": "RCB", "team2_code": "KKR", "status": "upcoming", "venue": "Raipur"},
+    {"match_id": "PBKS-MI-2026-05-14T19:30:00+05:30", "date": "2026-05-14T19:30:00+05:30", "team1": "Punjab Kings", "team2": "Mumbai Indians", "team1_code": "PBKS", "team2_code": "MI", "status": "upcoming", "venue": "Dharamshala"},
+    {"match_id": "LSG-CSK-2026-05-15T19:30:00+05:30", "date": "2026-05-15T19:30:00+05:30", "team1": "Lucknow Super Giants", "team2": "Chennai Super Kings", "team1_code": "LSG", "team2_code": "CSK", "status": "upcoming", "venue": "Lucknow"},
+    {"match_id": "KKR-GT-2026-05-16T19:30:00+05:30", "date": "2026-05-16T19:30:00+05:30", "team1": "Kolkata Knight Riders", "team2": "Gujarat Titans", "team1_code": "KKR", "team2_code": "GT", "status": "upcoming", "venue": "Kolkata"},
+    {"match_id": "PBKS-RCB-2026-05-17T15:30:00+05:30", "date": "2026-05-17T15:30:00+05:30", "team1": "Punjab Kings", "team2": "Royal Challengers Bengaluru", "team1_code": "PBKS", "team2_code": "RCB", "status": "upcoming", "venue": "Dharamshala"},
+    {"match_id": "DC-RR-2026-05-17T19:30:00+05:30", "date": "2026-05-17T19:30:00+05:30", "team1": "Delhi Capitals", "team2": "Rajasthan Royals", "team1_code": "DC", "team2_code": "RR", "status": "upcoming", "venue": "Delhi"},
+    {"match_id": "CSK-SRH-2026-05-18T19:30:00+05:30", "date": "2026-05-18T19:30:00+05:30", "team1": "Chennai Super Kings", "team2": "Sunrisers Hyderabad", "team1_code": "CSK", "team2_code": "SRH", "status": "upcoming", "venue": "Chennai"},
+    {"match_id": "RR-LSG-2026-05-19T19:30:00+05:30", "date": "2026-05-19T19:30:00+05:30", "team1": "Rajasthan Royals", "team2": "Lucknow Super Giants", "team1_code": "RR", "team2_code": "LSG", "status": "upcoming", "venue": "Jaipur"},
+    {"match_id": "KKR-MI-2026-05-20T19:30:00+05:30", "date": "2026-05-20T19:30:00+05:30", "team1": "Kolkata Knight Riders", "team2": "Mumbai Indians", "team1_code": "KKR", "team2_code": "MI", "status": "upcoming", "venue": "Kolkata"},
+    {"match_id": "CSK-GT-2026-05-21T19:30:00+05:30", "date": "2026-05-21T19:30:00+05:30", "team1": "Chennai Super Kings", "team2": "Gujarat Titans", "team1_code": "CSK", "team2_code": "GT", "status": "upcoming", "venue": "Chennai"},
+    {"match_id": "SRH-RCB-2026-05-22T19:30:00+05:30", "date": "2026-05-22T19:30:00+05:30", "team1": "Sunrisers Hyderabad", "team2": "Royal Challengers Bengaluru", "team1_code": "SRH", "team2_code": "RCB", "status": "upcoming", "venue": "Hyderabad"},
+    {"match_id": "LSG-PBKS-2026-05-23T19:30:00+05:30", "date": "2026-05-23T19:30:00+05:30", "team1": "Lucknow Super Giants", "team2": "Punjab Kings", "team1_code": "LSG", "team2_code": "PBKS", "status": "upcoming", "venue": "Lucknow"},
+    {"match_id": "MI-RR-2026-05-24T15:30:00+05:30", "date": "2026-05-24T15:30:00+05:30", "team1": "Mumbai Indians", "team2": "Rajasthan Royals", "team1_code": "MI", "team2_code": "RR", "status": "upcoming", "venue": "Mumbai"},
+    {"match_id": "KKR-DC-2026-05-24T19:30:00+05:30", "date": "2026-05-24T19:30:00+05:30", "team1": "Kolkata Knight Riders", "team2": "Delhi Capitals", "team1_code": "KKR", "team2_code": "DC", "status": "upcoming", "venue": "Kolkata"},
+]
+
+
 def _extract_next_data_json(html: str) -> Dict[str, Any]:
     m = re.search(
         r"<script[^>]*\bid=['\"]__NEXT_DATA__['\"][^>]*>\s*(\{.*?\})\s*</script>",
@@ -36,7 +113,6 @@ def _extract_next_data_json(html: str) -> Dict[str, Any]:
     )
     if not m:
         raise FixturesScrapeError("Could not find __NEXT_DATA__ in ESPN page HTML")
-
     raw = m.group(1).strip()
     try:
         return json.loads(raw)
@@ -59,17 +135,14 @@ def _pick_competition_nodes(next_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     for d in _walk(next_data):
         if not isinstance(d, dict):
             continue
-
         if isinstance(d.get("competitors"), list) and "status" in d:
             nodes.append(d)
             continue
-
         comps = d.get("competitions")
         if isinstance(comps, list):
             for c in comps:
                 if isinstance(c, dict) and isinstance(c.get("competitors"), list) and "status" in c:
                     nodes.append(c)
-
     return nodes
 
 
@@ -92,34 +165,21 @@ def _get_team_names_from_competitors(comp: Dict[str, Any]) -> Optional[Tuple[str
 def _status_fields(comp: Dict[str, Any]) -> Tuple[str, str, str]:
     st = comp.get("status") or {}
     t = st.get("type") or {}
-    name = str(t.get("name") or "").strip()
-    state = str(t.get("state") or "").strip()
-    detail = str(t.get("detail") or "").strip()
-    return name, state, detail
+    return str(t.get("name") or "").strip(), str(t.get("state") or "").strip(), str(t.get("detail") or "").strip()
 
 
 def _is_scheduled_or_pre(comp: Dict[str, Any]) -> bool:
     name, state, detail = _status_fields(comp)
-
-    name_u = name.upper()
-    state_l = state.lower()
-    detail_l = detail.lower()
-
-    if "SCHEDULED" in name_u:
+    if "SCHEDULED" in name.upper():
         return True
-
-    if state_l in ["pre", "preview"]:
+    if state.lower() in ["pre", "preview"]:
         return True
-
-    if any(x in detail_l for x in ["starts", "upcoming", "yet to begin"]):
+    if any(x in detail.lower() for x in ["starts", "upcoming", "yet to begin"]):
         return True
-
-    if state_l == "post":
+    if state.lower() == "post":
         return False
-
     if comp.get("date"):
         return True
-
     return False
 
 
@@ -145,17 +205,12 @@ def _to_fixture_dict(
 ) -> Optional[Dict[str, Any]]:
     team1_name, team1_code = _team_name_to_code_and_name(team1_name)
     team2_name, team2_code = _team_name_to_code_and_name(team2_name)
-
-    if not team1_name or not team2_name:
-        return None
-    if not team1_code or not team2_code:
+    if not team1_name or not team2_name or not team1_code or not team2_code:
         return None
     if team1_code == team2_code:
         return None
-
     if not match_id:
         match_id = f"{team1_code}-{team2_code}-{date_iso or 'unknown'}"
-
     return {
         "match_id": str(match_id),
         "date": date_iso or "",
@@ -170,192 +225,53 @@ def _to_fixture_dict(
 
 def _extract_from_next_data(next_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     comps = _pick_competition_nodes(next_data)
-
     fixtures: List[Dict[str, Any]] = []
     seen = set()
-
     for comp in comps:
         if not _is_scheduled_or_pre(comp):
             continue
-
         names = _get_team_names_from_competitors(comp)
         if not names:
             continue
-
         t1_name, t2_name = names
-        start_time_utc = _parse_start_time_utc(comp)
-
         venue = None
         venue_obj = comp.get("venue")
         if isinstance(venue_obj, dict):
             venue = venue_obj.get("fullName") or venue_obj.get("name")
-
         match_id = comp.get("id")
         item = _to_fixture_dict(
             team1_name=t1_name,
             team2_name=t2_name,
-            date_iso=start_time_utc,
+            date_iso=_parse_start_time_utc(comp),
             venue=venue,
             match_id=str(match_id) if match_id is not None else None,
         )
         if not item:
             continue
-
         key = item["match_id"]
         if key in seen:
             continue
         seen.add(key)
-
         fixtures.append(item)
-
-    fixtures.sort(key=lambda x: (x.get("date") or "", x["team1_code"], x["team2_code"]))
-    return fixtures
-
-
-def _parse_header_datetime_to_iso(header_line: str, detail_line: str) -> Optional[str]:
-    try:
-        m_time = re.search(r"(\d{1,2}:\d{2}\s*[AP]M)\s*IST", header_line, flags=re.I)
-        m_date = re.search(r"([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{4})", detail_line)
-        if not m_time or not m_date:
-            return None
-
-        time_part = m_time.group(1).upper().replace("  ", " ").strip()
-        month_str = m_date.group(1)
-        day = int(m_date.group(2))
-        year = int(m_date.group(3))
-
-        dt = datetime.strptime(f"{month_str} {day} {year} {time_part}", "%b %d %Y %I:%M %p")
-        return dt.strftime("%Y-%m-%dT%H:%M:%S+05:30")
-    except Exception:
-        return None
-
-
-def _extract_venue(detail_line: str) -> Optional[str]:
-    m = re.search(r"\bat\s+([^,]+)", detail_line, flags=re.I)
-    if not m:
-        return None
-    return m.group(1).strip()
-
-
-def _looks_like_team_name(line: str) -> bool:
-    if not line:
-        return False
-
-    bad = {
-        "summary",
-        "series home",
-        "filter by:",
-        "by team",
-        "fixtures and results",
-        "home",
-        "scores",
-        "series",
-        "teams",
-        "stats",
-    }
-    if line.lower() in bad:
-        return False
-
-    if re.search(r"\bmatch\b", line, flags=re.I):
-        return False
-    if re.search(r"\bIST\b", line):
-        return False
-    if re.search(r"^\d+(st|nd|rd|th)\s+Match", line, flags=re.I):
-        return False
-
-    words = line.split()
-    if len(words) < 2:
-        return False
-
-    return True
-
-
-def _extract_visible_html_fixtures(html: str) -> List[Dict[str, Any]]:
-    """
-    Fallback parser for the visible ESPN fixture cards when __NEXT_DATA__ is unavailable.
-    """
-    soup = BeautifulSoup(html, "html.parser")
-    text_lines = [
-        " ".join(s.strip().split())
-        for s in soup.stripped_strings
-        if s and " ".join(s.strip().split())
-    ]
-
-    fixtures: List[Dict[str, Any]] = []
-    seen = set()
-
-    header_re = re.compile(
-        r"^(MON|TUE|WED|THU|FRI|SAT|SUN)\s+\d{1,2}/\d{1,2}\s*-\s*\d{1,2}:\d{2}\s*[AP]M\s*IST$",
-        flags=re.I,
-    )
-
-    i = 0
-    n = len(text_lines)
-
-    while i < n:
-        line = text_lines[i]
-
-        if not header_re.match(line):
-            i += 1
-            continue
-
-        header_line = line
-        detail_line = text_lines[i + 1] if i + 1 < n else ""
-
-        team_candidates: List[str] = []
-        j = i + 2
-
-        while j < n and len(team_candidates) < 2:
-            candidate = text_lines[j]
-            if header_re.match(candidate):
-                break
-            if _looks_like_team_name(candidate):
-                team_candidates.append(candidate)
-            j += 1
-
-        if len(team_candidates) >= 2:
-            team1_name = team_candidates[0]
-            team2_name = team_candidates[1]
-            date_iso = _parse_header_datetime_to_iso(header_line, detail_line)
-            venue = _extract_venue(detail_line)
-            item = _to_fixture_dict(
-                team1_name=team1_name,
-                team2_name=team2_name,
-                date_iso=date_iso,
-                venue=venue,
-            )
-            if item:
-                key = (item["team1_code"], item["team2_code"], item["date"])
-                if key not in seen:
-                    seen.add(key)
-                    fixtures.append(item)
-
-        i = j
-
     fixtures.sort(key=lambda x: (x.get("date") or "", x["team1_code"], x["team2_code"]))
     return fixtures
 
 
 def _scrape_url(url: str, headers: Dict[str, str]) -> List[Dict[str, Any]]:
-    """Fetch a single ESPN URL and return parsed fixtures."""
     print(f"[DEBUG] Fetching: {url}", file=sys.stderr)
     with requests.Session() as s:
         r = s.get(url, timeout=20, headers=headers, allow_redirects=True)
         r.raise_for_status()
         html = r.text
-
     print(f"[DEBUG] HTML length: {len(html)}", file=sys.stderr)
-
     try:
         next_data = _extract_next_data_json(html)
         fixtures = _extract_from_next_data(next_data)
         print(f"[DEBUG] Parsed via __NEXT_DATA__: {len(fixtures)} fixtures", file=sys.stderr)
         return fixtures
     except FixturesScrapeError as e:
-        print(f"[DEBUG] __NEXT_DATA__ failed ({e}), trying HTML fallback", file=sys.stderr)
-        fixtures = _extract_visible_html_fixtures(html)
-        print(f"[DEBUG] Parsed via HTML fallback: {len(fixtures)} fixtures", file=sys.stderr)
-        return fixtures
+        print(f"[DEBUG] __NEXT_DATA__ failed ({e})", file=sys.stderr)
+        return []
 
 
 def fetch_espn_fixtures(season: int, *, use_cache: bool = True) -> Dict[str, Any]:
@@ -375,46 +291,40 @@ def fetch_espn_fixtures(season: int, *, use_cache: bool = True) -> Dict[str, Any
         "Connection": "keep-alive",
     }
 
-    # ── PRIMARY: /fixtures/ page — shows the full upcoming schedule ──
-    schedule_url = ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE.format(
-        series_id=IPL_SERIES_ID, season=season
-    )
-    url_used = schedule_url
-    fixtures: List[Dict[str, Any]] = []
-    seen_keys: set = set()
-    note = None
+    # Try scraping ESPN — collect best result across both URLs
+    scraped_fixtures: List[Dict[str, Any]] = []
+    url_used = ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season)
 
-    try:
-        fixtures = _scrape_url(schedule_url, headers)
-        seen_keys = {f["match_id"] for f in fixtures}
-    except Exception as e:
-        print(f"[DEBUG] Schedule (fixtures) URL failed: {e}", file=sys.stderr)
-        note = f"Schedule page failed: {e}"
+    for url in [
+        ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season),
+        ESPN_FIXTURES_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season),
+    ]:
+        try:
+            result = _scrape_url(url, headers)
+            if len(result) > len(scraped_fixtures):
+                scraped_fixtures = result
+                url_used = url
+        except Exception as e:
+            print(f"[DEBUG] Scrape failed for {url}: {e}", file=sys.stderr)
 
-    # ── FALLBACK / SUPPLEMENT: /scores/ page — catches live/recent matches ──
-    scores_url = ESPN_FIXTURES_URL_TEMPLATE.format(
-        series_id=IPL_SERIES_ID, season=season
-    )
-    try:
-        extra = _scrape_url(scores_url, headers)
-        added = 0
-        for f in extra:
-            if f["match_id"] not in seen_keys:
-                seen_keys.add(f["match_id"])
-                fixtures.append(f)
-                added += 1
-        print(f"[DEBUG] Scores page added {added} extra fixtures", file=sys.stderr)
-    except Exception as e:
-        print(f"[DEBUG] Scores URL failed: {e}", file=sys.stderr)
+    # ── Merge: scraped data first (has live/completed status),
+    #          hardcoded fills in any matches ESPN hasn't published yet ──
+    seen_keys: set = {f["match_id"] for f in scraped_fixtures}
+    fixtures: List[Dict[str, Any]] = list(scraped_fixtures)
 
-    if not fixtures:
-        raise FixturesScrapeError("No fixtures found from either ESPN schedule or scores page")
+    added_from_hardcoded = 0
+    for f in HARDCODED_IPL_2026_FIXTURES:
+        if f["match_id"] not in seen_keys:
+            seen_keys.add(f["match_id"])
+            fixtures.append(f)
+            added_from_hardcoded += 1
 
     fixtures.sort(key=lambda x: (x.get("date") or "", x["team1_code"], x["team2_code"]))
 
-    print(f"[DEBUG] Total fixtures: {len(fixtures)}", file=sys.stderr)
-    for f in fixtures:
-        print(f"[DEBUG] {f.get('date','')[:10]} {f['team1_code']} vs {f['team2_code']}", file=sys.stderr)
+    print(
+        f"[DEBUG] Scraped: {len(scraped_fixtures)}, hardcoded added: {added_from_hardcoded}, total: {len(fixtures)}",
+        file=sys.stderr,
+    )
 
     resp = {
         "season": season,
@@ -424,9 +334,6 @@ def fetch_espn_fixtures(season: int, *, use_cache: bool = True) -> Dict[str, Any
         "fixtures": fixtures,
         "fixtures_count": len(fixtures),
     }
-
-    if note:
-        resp["note"] = note
 
     if use_cache:
         cache_set(ckey, resp, FIXTURES_CACHE_TTL_SECONDS)
