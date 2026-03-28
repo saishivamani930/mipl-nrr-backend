@@ -178,7 +178,7 @@ def _load_live_state_for_display(season: int):
     """
     standings = _get_live_standings_cached(season)
     try:
-        return build_state_from_standings(standings, require_aggregates=False)
+        return state_from_standings(standings, require_aggregates=False)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 
@@ -190,7 +190,7 @@ def _load_live_state(season: int):
     """
     standings = _get_live_standings_cached(season)
     try:
-        return build_state_from_standings(standings, require_aggregates=True)
+        return state_from_standings(standings, require_aggregates=True)
     except ValueError as e:
         raise HTTPException(
             status_code=502,
@@ -202,7 +202,7 @@ def _load_live_state(season: int):
         )
     standings = _get_live_standings_cached(season)
     try:
-        return build_state_from_standings(standings)
+        return state_from_standings(standings)
     except ValueError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
@@ -469,7 +469,7 @@ def simulate_batch(req: BatchSimulateRequest, source: Literal["mock", "live"] = 
                     "runs_against": row.get("runs_against"),
                     "balls_against": row.get("balls_against"),
                 })
-            next_state = build_state_from_standings(new_standings)
+            next_state = state_from_standings(new_standings)
             if next_state:
                 current_state = next_state
         except Exception as e:
