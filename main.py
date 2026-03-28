@@ -170,7 +170,36 @@ def _get_live_standings_cached(season: int) -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail=f"Unable to fetch IPL standings: {str(e)}")
 
 
+def _load_live_state_for_display(season: int):
+    """
+    Build internal state for display-only endpoints (standings, fixtures).
+    Never raises on missing aggregates — teams will show NRR from ESPN,
+    not from recalculated aggregates.
+    """
+    standings = _get_live_standings_cached(season)
+    try:
+        return build_state_from_standings(standings, require_aggregates=False)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 def _load_live_state(season: int):
+    """
+    Build internal state for simulation endpoints.
+    Raises 502 if aggregates are missing (ESPN didn't return For/Against columns).
+    """
+    standings = _get_live_standings_cached(season)
+    try:
+        return build_state_from_standings(standings, require_aggregates=True)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"{str(e)} "
+                "The points table is still displayed correctly — only NRR simulation "
+                "requires the full For/Against aggregate data from ESPN."
+            )
+        )
     standings = _get_live_standings_cached(season)
     try:
         return build_state_from_standings(standings)

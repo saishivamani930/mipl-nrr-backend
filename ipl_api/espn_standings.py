@@ -34,6 +34,12 @@ IPL_TEAM_CODES = {
     "CSK","MI","RCB","KKR","SRH","RR","DC","PBKS","LSG","GT"
 }
 
+# Try multiple ESPN table URLs — some regions serve different page layouts
+ESPN_TABLE_URLS = [
+    "https://www.espn.in/cricket/table/series/{series_id}/season/{season}/indian-premier-league",
+    "https://www.espncricinfo.com/series/ipl-{season}-{series_id}/points-table-standings",
+]
+
 
 def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
     cols = []
@@ -242,40 +248,30 @@ def _maybe_split_points_nrr(row: pd.Series) -> Tuple[int, Optional[float]]:
     return _safe_int(pts_raw,0), nrr_val
 
 
-def fetch_espn_points_table(season: int) -> Dict[str, Any]:
-
-    url = ESPN_TABLE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season)
-
-    try:
-
-        r = requests.get(
-            url,
-            timeout=20,
-            headers={"User-Agent":"Mozilla/5.0"}
-        )
-
-        r.raise_for_status()
-
-    except Exception as e:
-        raise StandingsScrapeError(f"ESPN fetch failed: {e}") from e
-
-    try:
-
-        tables = pd.read_html(StringIO(r.text))
-
-    except Exception:
-
-        return {
-            "season":season,
-            "teams":[]
+def _fetch_html(url: str) -> str:
+    """Fetch raw HTML from a URL with a browser-like User-Agent."""
+    r = requests.get(
+        url,
+        timeout=20,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-IN,en;q=0.9",
         }
+    )
+    r.raise_for_status()
+    return r.text
+
+
+def _parse_table_from_html(html: str, season: int) -> Optional[Dict[str, Any]]:
+    """Try pd.read_html on HTML, pick best table, return standings dict or None."""
+    try:
+        tables = pd.read_html(StringIO(html))
+    except Exception:
+        return None
 
     if not tables:
-
-        return {
-            "season":season,
-            "teams":[]
-        }
+        return None
 
     df = _pick_points_table(tables)
     df = _flatten_columns(df)
@@ -326,16 +322,21 @@ def fetch_espn_points_table(season: int) -> Dict[str, Any]:
 
         points_val, nrr_val = _maybe_split_points_nrr(row)
 
-        item = {
-            "team":team_name,
-            "code":team_code,
-            "matches":_safe_int(row.get("matches")),
-            "won":_safe_int(row.get("won")),
-            "lost":_safe_int(row.get("lost")),
-            "points":int(points_val),
-            "nrr":nrr_val
+        item: Dict[str, Any] = {
+            "team": team_name,
+            "code": team_code,
+            "matches": _safe_int(row.get("matches")),
+            "won": _safe_int(row.get("won")),
+            "lost": _safe_int(row.get("lost")),
+            "points": int(points_val),
+            "nrr": nrr_val,
         }
 
+        # ── Aggregate columns (For / Against) ──
+        # These exist on some ESPN page layouts but not all.
+        # When present they enable accurate NRR simulation.
+        # When absent we omit them — the simulation engine will
+        # reject live-state builds but the *standings display* still works fine.
         if "for" in df.columns:
             parsed = _parse_runs_overs_cell(row.get("for"))
             if parsed:
@@ -348,9 +349,42 @@ def fetch_espn_points_table(season: int) -> Dict[str, Any]:
 
         teams.append(item)
 
+    if not teams:
+        return None
+
     return {
-        "season":season,
-        "source":"espn",
-        "last_updated_utc":datetime.utcnow().isoformat()+"Z",
-        "teams":teams
+        "season": season,
+        "source": "espn",
+        "last_updated_utc": datetime.utcnow().isoformat() + "Z",
+        "teams": teams,
     }
+
+
+def fetch_espn_points_table(season: int) -> Dict[str, Any]:
+    """
+    Scrape the IPL points table from ESPN.
+
+    Tries multiple URL patterns so that at least one page layout returns
+    the table with NRR.  The For/Against aggregate columns are captured when
+    available but are not required — their absence only affects live-NRR
+    simulation, not the standings display.
+    """
+    last_error: Exception = StandingsScrapeError("No URLs tried")
+
+    urls = [
+        ESPN_TABLE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season),
+        f"https://www.espncricinfo.com/series/ipl-{season}-{IPL_SERIES_ID}/points-table-standings",
+        f"https://www.espn.in/cricket/series/_/id/{IPL_SERIES_ID}/seasontype/2/standings",
+    ]
+
+    for url in urls:
+        try:
+            html = _fetch_html(url)
+            result = _parse_table_from_html(html, season)
+            if result and result.get("teams"):
+                return result
+        except Exception as e:
+            last_error = e
+            continue
+
+    raise StandingsScrapeError(f"All ESPN table URLs failed. Last error: {last_error}") from last_error

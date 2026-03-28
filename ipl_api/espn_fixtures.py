@@ -29,8 +29,6 @@ def _utc_now_iso() -> str:
 
 
 # ── Full IPL 2026 league schedule (all 70 matches) ──
-# Source: BCCI official announcement, March 26 2026
-# Used as fallback when ESPN scraping returns incomplete data
 HARDCODED_IPL_2026_FIXTURES: List[Dict[str, Any]] = [
     {"match_id": "RCB-SRH-2026-03-28T19:30:00+05:30", "date": "2026-03-28T19:30:00+05:30", "team1": "Royal Challengers Bengaluru", "team2": "Sunrisers Hyderabad", "team1_code": "RCB", "team2_code": "SRH", "status": "upcoming", "venue": "Bengaluru"},
     {"match_id": "MI-KKR-2026-03-29T19:30:00+05:30", "date": "2026-03-29T19:30:00+05:30", "team1": "Mumbai Indians", "team2": "Kolkata Knight Riders", "team1_code": "MI", "team2_code": "KKR", "status": "upcoming", "venue": "Mumbai"},
@@ -44,7 +42,7 @@ HARDCODED_IPL_2026_FIXTURES: List[Dict[str, Any]] = [
     {"match_id": "SRH-LSG-2026-04-05T15:30:00+05:30", "date": "2026-04-05T15:30:00+05:30", "team1": "Sunrisers Hyderabad", "team2": "Lucknow Super Giants", "team1_code": "SRH", "team2_code": "LSG", "status": "upcoming", "venue": "Hyderabad"},
     {"match_id": "RCB-CSK-2026-04-05T19:30:00+05:30", "date": "2026-04-05T19:30:00+05:30", "team1": "Royal Challengers Bengaluru", "team2": "Chennai Super Kings", "team1_code": "RCB", "team2_code": "CSK", "status": "upcoming", "venue": "Bengaluru"},
     {"match_id": "KKR-PBKS-2026-04-06T19:30:00+05:30", "date": "2026-04-06T19:30:00+05:30", "team1": "Kolkata Knight Riders", "team2": "Punjab Kings", "team1_code": "KKR", "team2_code": "PBKS", "status": "upcoming", "venue": "Kolkata"},
-    {"match_id": "RR-MI-2026-04-07T19:30:00+05:30", "date": "2026-04-07T19:30:00+05:30", "team1": "Rajasthan Royals", "team2": "Mumbai Indians", "team1_code": "RR", "team2_code": "MI", "status": "upcoming", "venue": "Guwahati"},
+    {"match_id": "RR-MI-2026-04-07T19:30:00+05:30", "date": "2026-03-07T19:30:00+05:30", "team1": "Rajasthan Royals", "team2": "Mumbai Indians", "team1_code": "RR", "team2_code": "MI", "status": "upcoming", "venue": "Guwahati"},
     {"match_id": "DC-GT-2026-04-08T19:30:00+05:30", "date": "2026-04-08T19:30:00+05:30", "team1": "Delhi Capitals", "team2": "Gujarat Titans", "team1_code": "DC", "team2_code": "GT", "status": "upcoming", "venue": "Delhi"},
     {"match_id": "KKR-LSG-2026-04-09T19:30:00+05:30", "date": "2026-04-09T19:30:00+05:30", "team1": "Kolkata Knight Riders", "team2": "Lucknow Super Giants", "team1_code": "KKR", "team2_code": "LSG", "status": "upcoming", "venue": "Kolkata"},
     {"match_id": "RR-RCB-2026-04-10T19:30:00+05:30", "date": "2026-04-10T19:30:00+05:30", "team1": "Rajasthan Royals", "team2": "Royal Challengers Bengaluru", "team1_code": "RR", "team2_code": "RCB", "status": "upcoming", "venue": "Guwahati"},
@@ -162,25 +160,75 @@ def _get_team_names_from_competitors(comp: Dict[str, Any]) -> Optional[Tuple[str
     return a, b
 
 
-def _status_fields(comp: Dict[str, Any]) -> Tuple[str, str, str]:
+def _get_status_info(comp: Dict[str, Any]) -> Tuple[str, str, str]:
+    """Return (name, state, detail) from the status block."""
     st = comp.get("status") or {}
     t = st.get("type") or {}
-    return str(t.get("name") or "").strip(), str(t.get("state") or "").strip(), str(t.get("detail") or "").strip()
+    return (
+        str(t.get("name") or "").strip().upper(),
+        str(t.get("state") or "").strip().lower(),
+        str(t.get("detail") or "").strip().lower(),
+    )
 
 
-def _is_scheduled_or_pre(comp: Dict[str, Any]) -> bool:
-    name, state, detail = _status_fields(comp)
-    if "SCHEDULED" in name.upper():
-        return True
-    if state.lower() in ["pre", "preview"]:
-        return True
-    if any(x in detail.lower() for x in ["starts", "upcoming", "yet to begin"]):
-        return True
-    if state.lower() == "post":
-        return False
-    if comp.get("date"):
-        return True
-    return False
+def _resolve_fixture_status(comp: Dict[str, Any]) -> str:
+    """
+    Return 'completed', 'live', or 'upcoming' based on ESPN competition node.
+    ESPN uses state='post' for completed, state='in' for live, state='pre' for upcoming.
+    """
+    name, state, detail = _get_status_info(comp)
+
+    if state == "post":
+        return "completed"
+    if state == "in" or "live" in detail or "in progress" in detail:
+        return "live"
+    if state in ("pre", "preview"):
+        return "upcoming"
+    if "FINAL" in name or "RESULT" in name or "COMPLETE" in name:
+        return "completed"
+    if "SCHEDULED" in name or "FIXTURE" in name:
+        return "upcoming"
+    # Fallback: check if match date has passed
+    date_str = comp.get("date")
+    if date_str:
+        try:
+            match_dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+            if match_dt < datetime.now(match_dt.tzinfo):
+                return "completed"
+        except Exception:
+            pass
+    return "upcoming"
+
+
+def _get_winner_code(comp: Dict[str, Any]) -> Optional[str]:
+    """
+    Extract the winner's team code from a completed match competition node.
+    ESPN marks the winner competitor with winner=True or a note like 'W'.
+    """
+    comps = comp.get("competitors")
+    if not isinstance(comps, list):
+        return None
+
+    for c in comps:
+        if not isinstance(c, dict):
+            continue
+        # ESPN sets winner=True on the winning competitor
+        if c.get("winner") is True:
+            team = c.get("team") or {}
+            name = (team.get("displayName") or team.get("name") or "").strip()
+            if name:
+                _, code = _team_name_to_code_and_name(name)
+                return code or None
+        # Some ESPN pages use a "note" field
+        note = str(c.get("note") or "").strip().upper()
+        if note == "W" or note == "WON":
+            team = c.get("team") or {}
+            name = (team.get("displayName") or team.get("name") or "").strip()
+            if name:
+                _, code = _team_name_to_code_and_name(name)
+                return code or None
+
+    return None
 
 
 def _parse_start_time_utc(comp: Dict[str, Any]) -> Optional[str]:
@@ -201,6 +249,8 @@ def _to_fixture_dict(
     team2_name: str,
     date_iso: Optional[str],
     venue: Optional[str],
+    status: str = "upcoming",
+    winner: Optional[str] = None,
     match_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     team1_name, team1_code = _team_name_to_code_and_name(team1_name)
@@ -211,39 +261,55 @@ def _to_fixture_dict(
         return None
     if not match_id:
         match_id = f"{team1_code}-{team2_code}-{date_iso or 'unknown'}"
-    return {
+
+    result: Dict[str, Any] = {
         "match_id": str(match_id),
         "date": date_iso or "",
         "team1": team1_name,
         "team2": team2_name,
         "team1_code": team1_code,
         "team2_code": team2_code,
-        "status": "upcoming",
+        "status": status,
         "venue": venue,
     }
+    # Only include winner when we actually know it
+    if winner:
+        result["winner"] = winner
+    return result
 
 
 def _extract_from_next_data(next_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Extract ALL matches (upcoming + live + completed) from ESPN __NEXT_DATA__.
+    Previously this only collected upcoming matches — that was the root cause of
+    completed matches never appearing in the schedule view.
+    """
     comps = _pick_competition_nodes(next_data)
     fixtures: List[Dict[str, Any]] = []
     seen = set()
+
     for comp in comps:
-        if not _is_scheduled_or_pre(comp):
-            continue
         names = _get_team_names_from_competitors(comp)
         if not names:
             continue
         t1_name, t2_name = names
+
+        status = _resolve_fixture_status(comp)
+        winner = _get_winner_code(comp) if status == "completed" else None
+
         venue = None
         venue_obj = comp.get("venue")
         if isinstance(venue_obj, dict):
             venue = venue_obj.get("fullName") or venue_obj.get("name")
+
         match_id = comp.get("id")
         item = _to_fixture_dict(
             team1_name=t1_name,
             team2_name=t2_name,
             date_iso=_parse_start_time_utc(comp),
             venue=venue,
+            status=status,
+            winner=winner,
             match_id=str(match_id) if match_id is not None else None,
         )
         if not item:
@@ -253,6 +319,7 @@ def _extract_from_next_data(next_data: Dict[str, Any]) -> List[Dict[str, Any]]:
             continue
         seen.add(key)
         fixtures.append(item)
+
     fixtures.sort(key=lambda x: (x.get("date") or "", x["team1_code"], x["team2_code"]))
     return fixtures
 
@@ -274,6 +341,44 @@ def _scrape_url(url: str, headers: Dict[str, str]) -> List[Dict[str, Any]]:
         return []
 
 
+def _mark_past_fixtures_completed(fixtures: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    For fixtures that are still marked 'upcoming' but whose scheduled date has
+    already passed by more than 4 hours (giving time for a match to finish),
+    upgrade their status to 'completed'.
+
+    This is a last-resort fallback for when ESPN scraping fails entirely and we
+    fall back to the hardcoded list — those always have status='upcoming'.
+    """
+    now = datetime.utcnow()
+    result = []
+    for f in fixtures:
+        f = dict(f)
+        if f.get("status") == "upcoming" and f.get("date"):
+            try:
+                # Parse ISO date (may have +05:30 offset)
+                date_str = f["date"]
+                # Convert offset-aware to UTC for comparison
+                dt = datetime.fromisoformat(date_str)
+                # Convert to UTC naive
+                import datetime as dt_module
+                if dt.tzinfo is not None:
+                    utc_dt = dt.utctimetuple()
+                    import calendar
+                    utc_ts = calendar.timegm(utc_dt)
+                    utc_naive = datetime.utcfromtimestamp(utc_ts)
+                else:
+                    utc_naive = dt
+                # If match was scheduled >4 hours ago, mark as completed
+                hours_past = (now - utc_naive).total_seconds() / 3600
+                if hours_past > 4:
+                    f["status"] = "completed"
+            except Exception:
+                pass
+        result.append(f)
+    return result
+
+
 def fetch_espn_fixtures(season: int, *, use_cache: bool = True) -> Dict[str, Any]:
     if season <= 0:
         raise ValueError("season must be a positive integer")
@@ -291,7 +396,6 @@ def fetch_espn_fixtures(season: int, *, use_cache: bool = True) -> Dict[str, Any
         "Connection": "keep-alive",
     }
 
-    # Try scraping ESPN — collect best result across both URLs
     scraped_fixtures: List[Dict[str, Any]] = []
     url_used = ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season)
 
@@ -307,19 +411,37 @@ def fetch_espn_fixtures(season: int, *, use_cache: bool = True) -> Dict[str, Any
         except Exception as e:
             print(f"[DEBUG] Scrape failed for {url}: {e}", file=sys.stderr)
 
-    # ── Merge: scraped data first (has live/completed status),
-    #          hardcoded fills in any matches ESPN hasn't published yet ──
-    seen_keys: set = {f["match_id"] for f in scraped_fixtures}
+    # Build a lookup of scraped fixtures by a canonical team-pair key
+    # so we can correctly override hardcoded status with live status
+    scraped_by_teams: Dict[str, Dict[str, Any]] = {}
+    for f in scraped_fixtures:
+        key = f"{f['team1_code']}-{f['team2_code']}"
+        scraped_by_teams[key] = f
+        # Also index reverse direction in case ESPN flips home/away
+        scraped_by_teams[f"{f['team2_code']}-{f['team1_code']}"] = f
+
+    # Merge: scraped data first (has live/completed status + winner),
+    # hardcoded fills in any matches ESPN hasn't published yet
+    seen_ids: set = {f["match_id"] for f in scraped_fixtures}
     fixtures: List[Dict[str, Any]] = list(scraped_fixtures)
 
     added_from_hardcoded = 0
-    for f in HARDCODED_IPL_2026_FIXTURES:
-        if f["match_id"] not in seen_keys:
-            seen_keys.add(f["match_id"])
-            fixtures.append(f)
-            added_from_hardcoded += 1
+    for hf in HARDCODED_IPL_2026_FIXTURES:
+        if hf["match_id"] in seen_ids:
+            continue
+        # Check if we have a scraped version under a different ID
+        pair_key = f"{hf['team1_code']}-{hf['team2_code']}"
+        if pair_key in scraped_by_teams:
+            # Already captured under a different ID — skip duplicate
+            continue
+        seen_ids.add(hf["match_id"])
+        fixtures.append(dict(hf))
+        added_from_hardcoded += 1
 
     fixtures.sort(key=lambda x: (x.get("date") or "", x["team1_code"], x["team2_code"]))
+
+    # Apply time-based completion fallback for fixtures that ESPN didn't return at all
+    fixtures = _mark_past_fixtures_completed(fixtures)
 
     print(
         f"[DEBUG] Scraped: {len(scraped_fixtures)}, hardcoded added: {added_from_hardcoded}, total: {len(fixtures)}",
