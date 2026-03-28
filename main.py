@@ -30,7 +30,7 @@ from ipl_api.nrr_math import MAX_BALLS_T20, normalize_innings_balls, overs_to_ba
 from ipl_api.planner import Fixture as PlanFixture, monte_carlo_planner
 
 from ipl_api.espn_standings import StandingsScrapeError, fetch_espn_points_table
-from ipl_api.state_from_standings import build_state_from_standings
+from ipl_api.state_from_standings import state_from_standings
 from ipl_api.espn_fixtures import FixturesScrapeError, fetch_espn_fixtures
 
 from ipl_api.thresholds import (
