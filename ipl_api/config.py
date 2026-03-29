@@ -45,7 +45,7 @@ ESPN_TABLE_URL_TEMPLATE: str = _get_env(
     # ESPN fixtures/scores URL pattern (season-based)
 ESPN_FIXTURES_URL_TEMPLATE: str = _get_env(
         "ESPN_FIXTURES_URL_TEMPLATE",
-        "https://site.web.api.espn.com/apis/site/v2/sports/cricket/{series_id}/schedule?limit=100",
+         "https://site.api.espn.com/apis/site/v2/sports/cricket/{series_id}/scoreboard?dates=20260328-20260531&limit=100",
     )
 
 ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE: str = _get_env(
