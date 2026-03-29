@@ -99,6 +99,12 @@ def resolve_team_code(raw: str, state: Dict[str, Any]) -> str:
 
     raise ValueError(f"Unknown team: {raw!r}. Known teams: {list(state.keys())}")
 
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+
 
 app = FastAPI(
     title="IPL NRR Scenario Simulator API",
