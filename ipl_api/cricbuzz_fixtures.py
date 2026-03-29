@@ -133,6 +133,7 @@ def _parse_ipl_match(match_obj: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     winner_code: Optional[str] = None
     result_text: Optional[str] = None
 
+    print(f"[CB] Match {t1_code}-{t2_code}: state={state!r} status_text={status_text!r} → status={status}", file=sys.stderr)
     if status == "completed":
         result_text = status_text  # e.g. "Royal Challengers Bengaluru won by 6 wkts"
         # Parse winner from result text
