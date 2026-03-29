@@ -9,6 +9,10 @@ from typing import Any, Dict, List, Optional
 import requests
 
 CRICBUZZ_IPL_SERIES_ID = 9241
+KNOWN_MATCH_IDS: Dict[str, int] = {
+    "RCB-SRH": 149618,
+    "MI-KKR": 149629,
+}
 
 CB_NAME_TO_CODE: Dict[str, str] = {
     "royal challengers bengaluru": "RCB",
@@ -236,7 +240,12 @@ def fetch_cricbuzz_ipl_results(
         if canonical in fetched:
             continue
 
-        match_id = match_id_map.get(canonical) or match_id_map.get(reverse)
+        match_id = (
+            KNOWN_MATCH_IDS.get(canonical) or
+            KNOWN_MATCH_IDS.get(reverse) or
+            match_id_map.get(canonical) or
+            match_id_map.get(reverse)
+        )
         if not match_id:
             print(f"[CB] No match ID found for {canonical} — skipping", file=sys.stderr)
             continue
