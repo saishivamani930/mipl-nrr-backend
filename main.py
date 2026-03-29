@@ -218,6 +218,10 @@ def get_live_standings(season: int = DEFAULT_SEASON):
     cached_fresh = cache_get(cache_key_fresh)
     if cached_fresh is not None:
         _ensure_standings_non_empty(cached_fresh, season)
+        cached_fresh["teams"] = sorted(
+            cached_fresh.get("teams", []),
+            key=lambda t: (-(t.get("points") or 0), -(t.get("nrr") or 0))
+        )
         return {
             "source": cached_fresh.get("source", "espn"),
             "season": season,
@@ -232,11 +236,19 @@ def get_live_standings(season: int = DEFAULT_SEASON):
         cache_set(cache_key_fresh, data, ttl_seconds=STANDINGS_CACHE_TTL_SECONDS)
         cache_set(cache_key_stale, data, ttl_seconds=24 * 3600)
 
+        data["teams"] = sorted(
+            data.get("teams", []),
+            key=lambda t: (-(t.get("points") or 0), -(t.get("nrr") or 0))
+        )
         return {"source": "espn", "season": season, "stale": False, "data": data}
 
     except StandingsScrapeError as e:
         cached_stale = cache_get(cache_key_stale)
         if cached_stale is not None:
+            cached_stale["teams"] = sorted(
+                cached_stale.get("teams", []),
+                key=lambda t: (-(t.get("points") or 0), -(t.get("nrr") or 0))
+            )
             return {
                 "source": "cache",
                 "season": season,
