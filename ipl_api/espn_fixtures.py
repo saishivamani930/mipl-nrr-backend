@@ -323,22 +323,111 @@ def _extract_from_next_data(next_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     fixtures.sort(key=lambda x: (x.get("date") or "", x["team1_code"], x["team2_code"]))
     return fixtures
 
+def _extract_from_espn_api(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Parse ESPN scoreboard JSON API response."""
+    fixtures: List[Dict[str, Any]] = []
+    seen = set()
+
+    events = data.get("events") or []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        competitions = event.get("competitions") or []
+        for comp in competitions:
+            if not isinstance(comp, dict):
+                continue
+            competitors = comp.get("competitors") or []
+            if len(competitors) < 2:
+                continue
+
+            def get_name(c: Dict[str, Any]) -> str:
+                t = c.get("team") or {}
+                return (t.get("displayName") or t.get("name") or "").strip()
+
+            t1_name = get_name(competitors[0])
+            t2_name = get_name(competitors[1])
+            if not t1_name or not t2_name:
+                continue
+
+            # Status
+            status_obj = comp.get("status") or {}
+            type_obj = status_obj.get("type") or {}
+            state = str(type_obj.get("state") or "").lower()
+            if state == "post":
+                status = "completed"
+            elif state == "in":
+                status = "live"
+            else:
+                status = "upcoming"
+
+            # Winner
+            winner = None
+            if status == "completed":
+                for c in competitors:
+                    if c.get("winner") is True:
+                        t = c.get("team") or {}
+                        name = (t.get("displayName") or t.get("name") or "").strip()
+                        if name:
+                            _, code = _team_name_to_code_and_name(name)
+                            winner = code or None
+                        break
+
+            # Venue
+            venue = None
+            venue_obj = comp.get("venue") or {}
+            venue = venue_obj.get("fullName") or venue_obj.get("name")
+
+            # Date
+            date_iso = comp.get("date") or event.get("date") or ""
+
+            # Match ID
+            match_id = str(comp.get("id") or event.get("id") or "")
+
+            item = _to_fixture_dict(
+                team1_name=t1_name,
+                team2_name=t2_name,
+                date_iso=date_iso,
+                venue=venue,
+                status=status,
+                winner=winner,
+                match_id=match_id or None,
+            )
+            if not item:
+                continue
+            key = item["match_id"]
+            if key in seen:
+                continue
+            seen.add(key)
+            fixtures.append(item)
+
+    fixtures.sort(key=lambda x: (x.get("date") or "", x["team1_code"], x["team2_code"]))
+    return fixtures
 
 def _scrape_url(url: str, headers: Dict[str, str]) -> List[Dict[str, Any]]:
     print(f"[DEBUG] Fetching: {url}", file=sys.stderr)
     with requests.Session() as s:
         r = s.get(url, timeout=20, headers=headers, allow_redirects=True)
         r.raise_for_status()
+        content_type = r.headers.get("content-type", "")
+        if "application/json" in content_type or url.startswith("https://site.api.espn.com"):
+            try:
+                data = r.json()
+                fixtures = _extract_from_espn_api(data)
+                print(f"[DEBUG] Parsed via ESPN JSON API: {len(fixtures)} fixtures", file=sys.stderr)
+                return fixtures
+            except Exception as e:
+                print(f"[DEBUG] ESPN JSON API parse failed ({e})", file=sys.stderr)
+                return []
         html = r.text
-    print(f"[DEBUG] HTML length: {len(html)}", file=sys.stderr)
-    try:
-        next_data = _extract_next_data_json(html)
-        fixtures = _extract_from_next_data(next_data)
-        print(f"[DEBUG] Parsed via __NEXT_DATA__: {len(fixtures)} fixtures", file=sys.stderr)
-        return fixtures
-    except FixturesScrapeError as e:
-        print(f"[DEBUG] __NEXT_DATA__ failed ({e})", file=sys.stderr)
-        return []
+        print(f"[DEBUG] HTML length: {len(html)}", file=sys.stderr)
+        try:
+            next_data = _extract_next_data_json(html)
+            fixtures = _extract_from_next_data(next_data)
+            print(f"[DEBUG] Parsed via __NEXT_DATA__: {len(fixtures)} fixtures", file=sys.stderr)
+            return fixtures
+        except FixturesScrapeError as e:
+            print(f"[DEBUG] __NEXT_DATA__ failed ({e})", file=sys.stderr)
+            return []
 
 
 def _mark_past_fixtures_completed(
@@ -398,8 +487,8 @@ def fetch_espn_fixtures(season: int, *, use_cache: bool = True) -> Dict[str, Any
     url_used = ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season)
 
     for url in [
-        ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season),
         ESPN_FIXTURES_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season),
+        ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season),
     ]:
         try:
             result = _scrape_url(url, headers)
