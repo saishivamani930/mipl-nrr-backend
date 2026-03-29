@@ -30,8 +30,8 @@ def _utc_now_iso() -> str:
 
 # ── Full IPL 2026 league schedule (all 70 matches) ──
 HARDCODED_IPL_2026_FIXTURES: List[Dict[str, Any]] = [
-    {"match_id": "RCB-SRH-2026-03-28T19:30:00+05:30", "date": "2026-03-28T19:30:00+05:30", "team1": "Royal Challengers Bengaluru", "team2": "Sunrisers Hyderabad", "team1_code": "RCB", "team2_code": "SRH", "status": "upcoming", "venue": "Bengaluru"},
-    {"match_id": "MI-KKR-2026-03-29T19:30:00+05:30", "date": "2026-03-29T19:30:00+05:30", "team1": "Mumbai Indians", "team2": "Kolkata Knight Riders", "team1_code": "MI", "team2_code": "KKR", "status": "upcoming", "venue": "Mumbai"},
+    {"match_id": "RCB-SRH-2026-03-28T19:30:00+05:30", "date": "2026-03-28T19:30:00+05:30", "team1": "Royal Challengers Bengaluru", "team2": "Sunrisers Hyderabad", "team1_code": "RCB", "team2_code": "SRH", "status": "completed", "venue": "Bengaluru", "winner_code": "RCB", "result": "Royal Challengers Bengaluru won by 6 wkts"},
+    {"match_id": "MI-KKR-2026-03-29T19:30:00+05:30", "date": "2026-03-29T19:30:00+05:30", "team1": "Mumbai Indians", "team2": "Kolkata Knight Riders", "team1_code": "MI", "team2_code": "KKR", "status": "completed", "venue": "Mumbai", "winner_code": "MI", "result": "Mumbai Indians won by 6 wkts"},
     {"match_id": "RR-CSK-2026-03-30T19:30:00+05:30", "date": "2026-03-30T19:30:00+05:30", "team1": "Rajasthan Royals", "team2": "Chennai Super Kings", "team1_code": "RR", "team2_code": "CSK", "status": "upcoming", "venue": "Guwahati"},
     {"match_id": "PBKS-GT-2026-03-31T19:30:00+05:30", "date": "2026-03-31T19:30:00+05:30", "team1": "Punjab Kings", "team2": "Gujarat Titans", "team1_code": "PBKS", "team2_code": "GT", "status": "upcoming", "venue": "New Chandigarh"},
     {"match_id": "LSG-DC-2026-04-01T19:30:00+05:30", "date": "2026-04-01T19:30:00+05:30", "team1": "Lucknow Super Giants", "team2": "Delhi Capitals", "team1_code": "LSG", "team2_code": "DC", "status": "upcoming", "venue": "Lucknow"},
