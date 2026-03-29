@@ -341,26 +341,18 @@ def _scrape_url(url: str, headers: Dict[str, str]) -> List[Dict[str, Any]]:
         return []
 
 
-def _mark_past_fixtures_completed(fixtures: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    For fixtures that are still marked 'upcoming' but whose scheduled date has
-    already passed by more than 4 hours (giving time for a match to finish),
-    upgrade their status to 'completed'.
-
-    This is a last-resort fallback for when ESPN scraping fails entirely and we
-    fall back to the hardcoded list — those always have status='upcoming'.
-    """
+def _mark_past_fixtures_completed(
+    fixtures: List[Dict[str, Any]],
+    scraped_by_teams: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
     now = datetime.utcnow()
     result = []
     for f in fixtures:
         f = dict(f)
         if f.get("status") == "upcoming" and f.get("date"):
             try:
-                # Parse ISO date (may have +05:30 offset)
                 date_str = f["date"]
-                # Convert offset-aware to UTC for comparison
                 dt = datetime.fromisoformat(date_str)
-                # Convert to UTC naive
                 import datetime as dt_module
                 if dt.tzinfo is not None:
                     utc_dt = dt.utctimetuple()
@@ -369,15 +361,21 @@ def _mark_past_fixtures_completed(fixtures: List[Dict[str, Any]]) -> List[Dict[s
                     utc_naive = datetime.utcfromtimestamp(utc_ts)
                 else:
                     utc_naive = dt
-                # If match was scheduled >4 hours ago, mark as completed
                 hours_past = (now - utc_naive).total_seconds() / 3600
                 if hours_past > 4:
                     f["status"] = "completed"
+                    # ← ADD THIS BLOCK
+                    if scraped_by_teams:
+                        pair_key = f"{f['team1_code']}-{f['team2_code']}"
+                        scraped = scraped_by_teams.get(pair_key) or scraped_by_teams.get(
+                            f"{f['team2_code']}-{f['team1_code']}"
+                        )
+                        if scraped and scraped.get("winner"):
+                            f["winner"] = scraped["winner"]
             except Exception:
                 pass
         result.append(f)
     return result
-
 
 def fetch_espn_fixtures(season: int, *, use_cache: bool = True) -> Dict[str, Any]:
     if season <= 0:
@@ -441,7 +439,7 @@ def fetch_espn_fixtures(season: int, *, use_cache: bool = True) -> Dict[str, Any
     fixtures.sort(key=lambda x: (x.get("date") or "", x["team1_code"], x["team2_code"]))
 
     # Apply time-based completion fallback for fixtures that ESPN didn't return at all
-    fixtures = _mark_past_fixtures_completed(fixtures)
+    fixtures = _mark_past_fixtures_completed(fixtures, scraped_by_teams)
 
     print(
         f"[DEBUG] Scraped: {len(scraped_fixtures)}, hardcoded added: {added_from_hardcoded}, total: {len(fixtures)}",
