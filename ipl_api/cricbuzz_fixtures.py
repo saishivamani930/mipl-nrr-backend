@@ -239,7 +239,7 @@ def fetch_cricbuzz_ipl_results(
         "Referer": "https://www.cricbuzz.com",
     }
 
-    url = "https://www.cricbuzz.com/cricket-series/9241/indian-premier-league-2026/matches"
+    url = "https://www.cricbuzz.com/cricket-match/live-scores"
     print(f"[CB] Fetching: {url}", file=sys.stderr)
 
     try:
