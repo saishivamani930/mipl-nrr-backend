@@ -762,3 +762,8 @@ def api_chase_win_max_balls(req: ThresholdChaseWinBallsRequest):
         target_score=req.target_score,
     )
     return {"season": req.season, "input": req.model_dump(), "result": out}
+
+@app.get("/api/debug/cache")
+def debug_cache():
+    from ipl_api.cache import debug_snapshot
+    return debug_snapshot()
