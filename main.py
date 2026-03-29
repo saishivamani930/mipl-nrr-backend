@@ -596,7 +596,7 @@ def plan_montecarlo(
             try:
                 cached_fx = fetch_espn_fixtures(season)
                 cache_set(fx_cache_key, cached_fx, ttl_seconds=FIXTURES_CACHE_TTL_SECONDS)
-                cache_set(f"ipl-fixtures:{season}:stale", cached_fx, ttl_seconds=24 * 3600))
+                cache_set(f"ipl-fixtures:{season}:stale", cached_fx, ttl_seconds=24 * 3600)
             except FixturesScrapeError as e:
                 raise HTTPException(status_code=502, detail=f"Unable to fetch fixtures: {str(e)}")
 
