@@ -55,7 +55,7 @@ ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE: str = _get_env(
 
     # Cache TTLs
 STANDINGS_CACHE_TTL_SECONDS: int = _get_env_int("STANDINGS_CACHE_TTL_SECONDS", 120)
-FIXTURES_CACHE_TTL_SECONDS: int = _get_env_int("FIXTURES_CACHE_TTL_SECONDS", 900)
+FIXTURES_CACHE_TTL_SECONDS: int = _get_env_int("FIXTURES_CACHE_TTL_SECONDS", 300)
 
 
 def validate_config() -> None:
@@ -72,8 +72,8 @@ def validate_config() -> None:
         if "{season}" not in ESPN_TABLE_URL_TEMPLATE or "{series_id}" not in ESPN_TABLE_URL_TEMPLATE:
             raise RuntimeError("ESPN_TABLE_URL_TEMPLATE must contain {series_id} and {season} placeholders.")
 
-        if "{season}" not in ESPN_FIXTURES_URL_TEMPLATE or "{series_id}" not in ESPN_FIXTURES_URL_TEMPLATE:
-            raise RuntimeError("ESPN_FIXTURES_URL_TEMPLATE must contain {series_id} and {season} placeholders.")
+        if "{series_id}" not in ESPN_FIXTURES_URL_TEMPLATE:
+            raise RuntimeError("ESPN_FIXTURES_URL_TEMPLATE must contain {series_id} placeholder.")
 
         # TTL validation
         if STANDINGS_CACHE_TTL_SECONDS <= 0:

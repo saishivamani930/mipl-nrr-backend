@@ -487,7 +487,7 @@ def fetch_espn_fixtures(season: int, *, use_cache: bool = True) -> Dict[str, Any
     url_used = ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season)
 
     for url in [
-        ESPN_FIXTURES_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season),
+        ESPN_FIXTURES_URL_TEMPLATE.format(series_id=IPL_SERIES_ID),
         ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season),
     ]:
         try:
