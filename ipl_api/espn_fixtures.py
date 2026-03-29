@@ -17,6 +17,7 @@ from ipl_api.config import (
 )
 from ipl_api.state_from_standings import normalize_team_code
 
+from ipl_api.cricbuzz_fixtures import fetch_cricbuzz_ipl_results
 
 class FixturesScrapeError(Exception):
     """Raised when ESPN fixtures scraping/parsing fails."""
@@ -518,7 +519,23 @@ def fetch_espn_fixtures(season: int) -> dict:
         if pair_key in scraped_by_teams:
             continue
         seen_ids.add(hf["match_id"])
-        fixtures.append(dict(hf))
+        f = dict(hf)
+
+        # Apply Cricbuzz status to hardcoded fixtures directly
+        cb = cricbuzz_map.get(pair_key)
+        if cb:
+            if cb.get("status") in ("completed", "live"):
+                f["status"] = cb["status"]
+            if cb.get("winner"):
+                f["winner"] = cb["winner"]
+            if cb.get("result"):
+                f["result"] = cb["result"]
+            if cb.get("team1_score"):
+                f["team1_score"] = cb["team1_score"]
+            if cb.get("team2_score"):
+                f["team2_score"] = cb["team2_score"]
+
+        fixtures.append(f)
         added_from_hardcoded += 1
  
     fixtures.sort(key=lambda x: (x.get("date") or "", x["team1_code"], x["team2_code"]))
