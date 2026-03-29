@@ -497,14 +497,6 @@ def fetch_espn_fixtures(season: int) -> dict:
     try:
         cricbuzz_map = fetch_cricbuzz_ipl_results()
         print(f"[CB] Cricbuzz returned data for {len(cricbuzz_map) // 2} unique matches", file=sys.stderr)
-    except Exception as e:
-        print(f"[CB] Cricbuzz fetch failed (non-fatal): {e}", file=sys.stderr)
-
-    cricbuzz_map: dict = {}
-    try:
-        cricbuzz_map = fetch_cricbuzz_ipl_results()
-        print(f"[CB] Cricbuzz returned data for {len(cricbuzz_map) // 2} unique matches", file=sys.stderr)
-        # ADD THIS LINE:
         print(f"[CB] Cricbuzz keys: {list(cricbuzz_map.keys())}", file=sys.stderr)
     except Exception as e:
         print(f"[CB] Cricbuzz fetch failed (non-fatal): {e}", file=sys.stderr)
