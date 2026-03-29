@@ -120,7 +120,18 @@ def _parse_ipl_match(match_obj: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     match_desc = str(info.get("matchDesc", "")).strip()
 
     # Determine status
-    if state in ("complete", "finished"):
+    # Check status_text first — Cricbuzz series page doesn't reliably set state
+    # for completed matches; result strings are the most reliable signal
+    lower_status_text = status_text.lower()
+    result_indicators = (
+        " won by " in lower_status_text or
+        " tied" in lower_status_text or
+        "match tied" in lower_status_text or
+        "no result" in lower_status_text or
+        "abandoned" in lower_status_text
+    )
+
+    if state in ("complete", "finished") or result_indicators:
         status = "completed"
     elif state in ("in progress", "innings break", "strategic timeout", "drinks"):
         status = "live"
