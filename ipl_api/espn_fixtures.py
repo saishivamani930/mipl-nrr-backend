@@ -495,9 +495,27 @@ def fetch_espn_fixtures(season: int) -> dict:
     # ── Cricbuzz: fetch result texts ──────────────────────────────────────────
     cricbuzz_map: dict = {}
     try:
-        cricbuzz_map = fetch_cricbuzz_ipl_results()
+        # Determine which matches are completed based on date
+        now_utc = datetime.utcnow()
+        completed_pairs = []
+        for hf in HARDCODED_IPL_2026_FIXTURES:
+            try:
+                dt = datetime.fromisoformat(hf["date"])
+                import calendar
+                if dt.tzinfo is not None:
+                    utc_ts = calendar.timegm(dt.utctimetuple())
+                    utc_dt = datetime.utcfromtimestamp(utc_ts)
+                else:
+                    utc_dt = dt
+                hours_past = (now_utc - utc_dt).total_seconds() / 3600
+                if hours_past > 4:
+                    completed_pairs.append(f"{hf['team1_code']}-{hf['team2_code']}")
+            except Exception:
+                pass
+
+        print(f"[CB] Detected {len(completed_pairs)} completed matches to fetch", file=sys.stderr)
+        cricbuzz_map = fetch_cricbuzz_ipl_results(completed_pairs=completed_pairs)
         print(f"[CB] Cricbuzz returned data for {len(cricbuzz_map) // 2} unique matches", file=sys.stderr)
-        print(f"[CB] Cricbuzz keys: {list(cricbuzz_map.keys())}", file=sys.stderr)
     except Exception as e:
         print(f"[CB] Cricbuzz fetch failed (non-fatal): {e}", file=sys.stderr)
  
