@@ -9,17 +9,7 @@ from typing import Any, Dict, Optional, Tuple
 _cache: Dict[str, Tuple[float, Any]] = {}
 
 
-def make_key(namespace: str, key: str) -> str:
-    """
-    Enforce namespaced cache keys to avoid collisions.
-    Example:
-      make_key("standings", "2026") -> "standings:2026"
-    """
-    namespace = namespace.strip()
-    key = key.strip()
-    if not namespace or not key:
-        raise ValueError("Cache namespace and key must be non-empty")
-    return f"{namespace}:{key}"
+
 
 
 def get(key: str) -> Optional[Any]:

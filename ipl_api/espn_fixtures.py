@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 from bs4 import BeautifulSoup
 
-from ipl_api.cache import get as cache_get, set as cache_set, make_key as cache_key
 from ipl_api.config import (
     IPL_SERIES_ID,
     ESPN_FIXTURES_URL_TEMPLATE,
@@ -466,26 +465,20 @@ def _mark_past_fixtures_completed(
         result.append(f)
     return result
 
-def fetch_espn_fixtures(season: int, *, use_cache: bool = True) -> Dict[str, Any]:
+def fetch_espn_fixtures(season: int) -> dict:
     if season <= 0:
         raise ValueError("season must be a positive integer")
-
-    ckey = cache_key("fixtures", str(season))
-    if use_cache:
-        cached = cache_get(ckey)
-        if cached is not None:
-            return cached
-
+ 
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; IPL-NRR-Sim/1.0)",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-IN,en;q=0.9",
         "Connection": "keep-alive",
     }
-
-    scraped_fixtures: List[Dict[str, Any]] = []
+ 
+    scraped_fixtures = []
     url_used = ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season)
-
+ 
     for url in [
         ESPN_FIXTURES_URL_TEMPLATE.format(series_id=IPL_SERIES_ID),
         ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season),
@@ -497,54 +490,80 @@ def fetch_espn_fixtures(season: int, *, use_cache: bool = True) -> Dict[str, Any
                 url_used = url
         except Exception as e:
             print(f"[DEBUG] Scrape failed for {url}: {e}", file=sys.stderr)
-
-    # Build a lookup of scraped fixtures by a canonical team-pair key
-    # so we can correctly override hardcoded status with live status
-    scraped_by_teams: Dict[str, Dict[str, Any]] = {}
+ 
+    # ── Cricbuzz: fetch result texts ──────────────────────────────────────────
+    cricbuzz_map: dict = {}
+    try:
+        cricbuzz_map = fetch_cricbuzz_ipl_results()
+        print(f"[CB] Cricbuzz returned data for {len(cricbuzz_map) // 2} unique matches", file=sys.stderr)
+    except Exception as e:
+        print(f"[CB] Cricbuzz fetch failed (non-fatal): {e}", file=sys.stderr)
+ 
+    # ── Build lookup of ESPN scraped fixtures by team-pair ────────────────────
+    scraped_by_teams: dict = {}
     for f in scraped_fixtures:
         key = f"{f['team1_code']}-{f['team2_code']}"
         scraped_by_teams[key] = f
-        # Also index reverse direction in case ESPN flips home/away
         scraped_by_teams[f"{f['team2_code']}-{f['team1_code']}"] = f
-
-    # Merge: scraped data first (has live/completed status + winner),
-    # hardcoded fills in any matches ESPN hasn't published yet
+ 
+    # ── Merge: ESPN scraped + hardcoded fallback ──────────────────────────────
     seen_ids: set = {f["match_id"] for f in scraped_fixtures}
-    fixtures: List[Dict[str, Any]] = list(scraped_fixtures)
-
+    fixtures = list(scraped_fixtures)
+ 
     added_from_hardcoded = 0
     for hf in HARDCODED_IPL_2026_FIXTURES:
         if hf["match_id"] in seen_ids:
             continue
-        # Check if we have a scraped version under a different ID
         pair_key = f"{hf['team1_code']}-{hf['team2_code']}"
         if pair_key in scraped_by_teams:
-            # Already captured under a different ID — skip duplicate
             continue
         seen_ids.add(hf["match_id"])
         fixtures.append(dict(hf))
         added_from_hardcoded += 1
-
+ 
     fixtures.sort(key=lambda x: (x.get("date") or "", x["team1_code"], x["team2_code"]))
-
-    # Apply time-based completion fallback for fixtures that ESPN didn't return at all
+ 
+    # ── Time-based completion fallback ────────────────────────────────────────
     fixtures = _mark_past_fixtures_completed(fixtures, scraped_by_teams)
-
+ 
+    # ── Enrich with Cricbuzz result text + winner ─────────────────────────────
+    for f in fixtures:
+        pair_key = f"{f['team1_code']}-{f['team2_code']}"
+        cb = cricbuzz_map.get(pair_key)
+        if not cb:
+            continue
+ 
+        # Sync status from Cricbuzz if ESPN didn't catch it
+        if cb.get("status") in ("completed", "live") and f.get("status") == "upcoming":
+            f["status"] = cb["status"]
+ 
+        # Add result text (the full "X won by Y wkts" string)
+        if cb.get("result") and f.get("status") == "completed":
+            f["result"] = cb["result"]
+ 
+        # Add winner code if missing
+        if cb.get("winner") and not f.get("winner"):
+            f["winner"] = cb["winner"]
+ 
+        # Add scores if available
+        if cb.get("team1_score"):
+            f["team1_score"] = cb["team1_score"]
+        if cb.get("team2_score"):
+            f["team2_score"] = cb["team2_score"]
+ 
     print(
-        f"[DEBUG] Scraped: {len(scraped_fixtures)}, hardcoded added: {added_from_hardcoded}, total: {len(fixtures)}",
+        f"[DEBUG] Scraped: {len(scraped_fixtures)}, hardcoded added: {added_from_hardcoded}, "
+        f"total: {len(fixtures)}, cricbuzz enriched: {sum(1 for f in fixtures if f.get('result'))}",
         file=sys.stderr,
     )
-
+ 
     resp = {
         "season": season,
-        "source": "espn",
+        "source": "espn+cricbuzz",
         "url_used": url_used,
         "last_updated_utc": _utc_now_iso(),
         "fixtures": fixtures,
         "fixtures_count": len(fixtures),
     }
-
-    if use_cache:
-        cache_set(ckey, resp, FIXTURES_CACHE_TTL_SECONDS)
-
+ 
     return resp

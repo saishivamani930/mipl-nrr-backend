@@ -206,11 +206,7 @@ def _load_live_state(season: int):
                 "requires the full For/Against aggregate data from ESPN."
             )
         )
-    standings = _get_live_standings_cached(season)
-    try:
-        return state_from_standings(standings)
-    except ValueError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+    
 
 
 # -----------------------
@@ -271,19 +267,36 @@ def get_live_standings(season: int = DEFAULT_SEASON):
 # -----------------------
 @app.get("/api/fixtures")
 def get_live_fixtures(season: int = DEFAULT_SEASON):
-    cache_key = f"ipl-fixtures:{season}:fresh"
+    cache_key_fresh = f"ipl-fixtures:{season}:fresh"
+    cache_key_stale = f"ipl-fixtures:{season}:stale"
 
-    cached = cache_get(cache_key)
-    if cached is not None:
-        return {"source": cached.get("source", "espn"), "season": season, "stale": False, "data": cached}
+    cached_fresh = cache_get(cache_key_fresh)
+    if cached_fresh is not None:
+        return {
+            "source": cached_fresh.get("source", "espn"),
+            "season": season,
+            "stale": False,
+            "data": cached_fresh,
+        }
 
     try:
         data = fetch_espn_fixtures(season)
-        cache_set(cache_key, data, ttl_seconds=FIXTURES_CACHE_TTL_SECONDS)
+        cache_set(cache_key_fresh, data, ttl_seconds=FIXTURES_CACHE_TTL_SECONDS)
+        cache_set(cache_key_stale, data, ttl_seconds=24 * 3600)
         return {"source": "espn", "season": season, "stale": False, "data": data}
-    except FixturesScrapeError as e:
-        raise HTTPException(status_code=502, detail=f"Unable to fetch fixtures: {str(e)}")
 
+    except FixturesScrapeError as e:
+        cached_stale = cache_get(cache_key_stale)
+        if cached_stale is not None:
+            return {
+                "source": "cache",
+                "season": season,
+                "stale": True,
+                "warning": "Live scrape failed, serving cached data",
+                "error": str(e),
+                "data": cached_stale,
+            }
+        raise HTTPException(status_code=502, detail=f"Unable to fetch fixtures: {str(e)}")
 
 # -----------------------
 # Optional: CricketData API ping
@@ -308,10 +321,7 @@ def ping_cricket():
     except CricketDataError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(
-        status_code=500,
-        detail=f"Batch state rebuild failed after match {i+1}: {str(e)}"
-    )
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 
 # -----------------------
@@ -586,6 +596,7 @@ def plan_montecarlo(
             try:
                 cached_fx = fetch_espn_fixtures(season)
                 cache_set(fx_cache_key, cached_fx, ttl_seconds=FIXTURES_CACHE_TTL_SECONDS)
+                cache_set(f"ipl-fixtures:{season}:stale", cached_fx, ttl_seconds=24 * 3600))
             except FixturesScrapeError as e:
                 raise HTTPException(status_code=502, detail=f"Unable to fetch fixtures: {str(e)}")
 
