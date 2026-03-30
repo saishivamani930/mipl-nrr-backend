@@ -32,7 +32,7 @@ from ipl_api.planner import Fixture as PlanFixture, monte_carlo_planner
 from ipl_api.espn_standings import StandingsScrapeError, fetch_espn_points_table
 from ipl_api.state_from_standings import state_from_standings
 from ipl_api.espn_fixtures import FixturesScrapeError, fetch_espn_fixtures
-from ipl_api.cricbuzz_fixtures import fetch_cricbuzz_ipl_results
+
 
 from ipl_api.thresholds import (
     chase_loss_min_score,
@@ -285,25 +285,7 @@ def get_live_fixtures(season: int = DEFAULT_SEASON):
     try:
         data = fetch_espn_fixtures(season)
 
-        # Enrich with Cricbuzz results (winner_code, result text)
-        try:
-            cb_results = fetch_cricbuzz_ipl_results()
-            enriched = 0
-            for fixture in data.get("fixtures", []):
-                t1 = fixture.get("team1_code")
-                t2 = fixture.get("team2_code")
-                key = f"{t1}-{t2}"
-                cb = cb_results.get(key)
-                if cb and cb.get("status") == "completed":
-                    fixture["status"] = "completed"
-                    if cb.get("winner"):
-                        fixture["winner_code"] = cb["winner"]
-                    if cb.get("result"):
-                        fixture["result"] = cb["result"]
-                    enriched += 1
-            print(f"[DEBUG] Cricbuzz enriched: {enriched}", file=sys.stderr)
-        except Exception as cb_err:
-            print(f"[CB] Enrichment failed: {cb_err}", file=sys.stderr)
+        # Cricbuzz enrichment is handled inside fetch_espn_fixtures
 
         cache_set(cache_key_fresh, data, ttl_seconds=FIXTURES_CACHE_TTL_SECONDS)
         cache_set(cache_key_stale, data, ttl_seconds=24 * 3600)
