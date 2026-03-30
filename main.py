@@ -126,6 +126,10 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     validate_config()
+    try:
+        _get_live_standings_cached(DEFAULT_SEASON)
+    except Exception:
+        pass
 
 
 @app.get("/health")
