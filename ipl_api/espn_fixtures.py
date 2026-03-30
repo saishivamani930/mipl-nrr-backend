@@ -464,7 +464,8 @@ def fetch_espn_fixtures(season: int) -> dict:
                 else:
                     dt_utc = dt.replace(tzinfo=timezone.utc)
                 if (now_utc - dt_utc).total_seconds() / 3600 > 4:
-                    completed_pairs.append(f"{hf['team1_code']}-{hf['team2_code']}")
+                    date_only = hf["date"][:10]
+                    completed_pairs.append(f"{hf['team1_code']}-{hf['team2_code']}-{date_only}")
             except Exception:
                 pass
 

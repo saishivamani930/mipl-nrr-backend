@@ -10,8 +10,76 @@ import requests
 
 CRICBUZZ_IPL_SERIES_ID = 9241
 KNOWN_MATCH_IDS: Dict[str, int] = {
-    "RCB-SRH": 149618,
-    "MI-KKR": 149629,
+    "RCB-SRH-2026-03-28": 149618,
+    "MI-KKR-2026-03-29": 149629,
+    "RR-CSK-2026-03-30": 149640,
+    "PBKS-GT-2026-03-31": 149651,
+    "LSG-DC-2026-04-01": 149662,
+    "KKR-SRH-2026-04-02": 149673,
+    "CSK-PBKS-2026-04-03": 149684,
+    "DC-MI-2026-04-04": 149695,
+    "GT-RR-2026-04-04": 149699,
+    "SRH-LSG-2026-04-05": 149710,
+    "RCB-CSK-2026-04-05": 149721,
+    "KKR-PBKS-2026-04-06": 149732,
+    "RR-MI-2026-04-07": 149743,
+    "DC-GT-2026-04-08": 149746,
+    "KKR-LSG-2026-04-09": 149757,
+    "RR-RCB-2026-04-10": 149768,
+    "PBKS-SRH-2026-04-11": 149779,
+    "CSK-DC-2026-04-11": 149790,
+    "LSG-GT-2026-04-12": 149801,
+    "MI-RCB-2026-04-12": 149812,
+    "SRH-RR-2026-04-13": 151752,
+    "CSK-KKR-2026-04-14": 151763,
+    "RCB-LSG-2026-04-15": 151774,
+    "MI-PBKS-2026-04-16": 151785,
+    "GT-KKR-2026-04-17": 151796,
+    "RCB-DC-2026-04-18": 151807,
+    "SRH-CSK-2026-04-18": 151818,
+    "KKR-RR-2026-04-19": 151829,
+    "PBKS-LSG-2026-04-19": 151840,
+    "GT-MI-2026-04-20": 151845,
+    "SRH-DC-2026-04-21": 151856,
+    "LSG-RR-2026-04-22": 151867,
+    "MI-CSK-2026-04-23": 151878,
+    "RCB-GT-2026-04-24": 151889,
+    "DC-PBKS-2026-04-25": 151891,
+    "RR-SRH-2026-04-25": 151902,
+    "GT-CSK-2026-04-26": 151913,
+    "LSG-KKR-2026-04-26": 151924,
+    "DC-RCB-2026-04-27": 151935,
+    "PBKS-RR-2026-04-28": 151943,
+    "MI-SRH-2026-04-29": 151954,
+    "GT-RCB-2026-04-30": 151965,
+    "RR-DC-2026-05-01": 151976,
+    "CSK-MI-2026-05-02": 151987,
+    "SRH-KKR-2026-05-03": 151998,
+    "GT-PBKS-2026-05-03": 152009,
+    "MI-LSG-2026-05-04": 152020,
+    "DC-CSK-2026-05-05": 152031,
+    "SRH-PBKS-2026-05-06": 152042,
+    "LSG-RCB-2026-05-07": 152053,
+    "DC-KKR-2026-05-08": 152064,
+    "RR-GT-2026-05-09": 152075,
+    "CSK-LSG-2026-05-10": 152086,
+    "RCB-MI-2026-05-10": 152097,
+    "PBKS-DC-2026-05-11": 152108,
+    "GT-SRH-2026-05-12": 152119,
+    "RCB-KKR-2026-05-13": 152130,
+    "PBKS-MI-2026-05-14": 152141,
+    "LSG-CSK-2026-05-15": 152152,
+    "KKR-GT-2026-05-16": 152163,
+    "PBKS-RCB-2026-05-17": 152174,
+    "DC-RR-2026-05-17": 152185,
+    "CSK-SRH-2026-05-18": 152196,
+    "RR-LSG-2026-05-19": 152207,
+    "KKR-MI-2026-05-20": 152218,
+    "CSK-GT-2026-05-21": 152229,
+    "SRH-RCB-2026-05-22": 152240,
+    "LSG-PBKS-2026-05-23": 152241,
+    "MI-RR-2026-05-24": 152252,
+    "KKR-DC-2026-05-24": 152263,
 }
 
 CB_NAME_TO_CODE: Dict[str, str] = {
@@ -201,20 +269,27 @@ def fetch_cricbuzz_ipl_results(
     fetched: set = set()
 
     for pair in completed_pairs:
-        if "-" not in pair:
+        parts = pair.split("-")
+        if len(parts) < 2:
             continue
-        t1, t2 = pair.split("-", 1)
+        # Format is "T1-T2-YYYY-MM-DD"
+        if len(parts) == 5:
+            t1, t2, match_date = parts[0], parts[1], "-".join(parts[2:])
+        else:
+            t1, t2, match_date = parts[0], parts[1], ""
         canonical = f"{t1}-{t2}"
         reverse = f"{t2}-{t1}"
+        date_key = f"{canonical}-{match_date}" if match_date else ""
+        reverse_date_key = f"{reverse}-{match_date}" if match_date else ""
 
         if canonical in fetched:
             continue
 
         cb_match_id = (
-            KNOWN_MATCH_IDS.get(canonical)
-            or KNOWN_MATCH_IDS.get(reverse)
-            or match_id_map.get(canonical)
+            match_id_map.get(canonical)
             or match_id_map.get(reverse)
+            or KNOWN_MATCH_IDS.get(date_key)
+            or KNOWN_MATCH_IDS.get(reverse_date_key)
         )
         if not cb_match_id:
             print(f"[CB] No match ID found for {canonical} — skipping", file=sys.stderr)
