@@ -129,6 +129,7 @@ def on_startup():
 
 
 @app.get("/health")
+@app.head("/health")
 def health_check():
     return {"status": "ok", "time": datetime.utcnow().isoformat() + "Z"}
 
@@ -268,6 +269,8 @@ def get_live_standings(season: int = DEFAULT_SEASON):
 # -----------------------
 # Live fixtures endpoint
 # -----------------------
+# Replace the entire /api/fixtures endpoint in main.py with this:
+
 @app.get("/api/fixtures")
 def get_live_fixtures(season: int = DEFAULT_SEASON):
     cache_key_fresh = f"ipl-fixtures:{season}:fresh"
@@ -284,8 +287,7 @@ def get_live_fixtures(season: int = DEFAULT_SEASON):
 
     try:
         data = fetch_espn_fixtures(season)
-
-        # Cricbuzz enrichment is handled inside fetch_espn_fixtures
+        # Cricbuzz enrichment is already handled inside fetch_espn_fixtures
 
         cache_set(cache_key_fresh, data, ttl_seconds=FIXTURES_CACHE_TTL_SECONDS)
         cache_set(cache_key_stale, data, ttl_seconds=24 * 3600)
@@ -303,6 +305,7 @@ def get_live_fixtures(season: int = DEFAULT_SEASON):
                 "data": cached_stale,
             }
         raise HTTPException(status_code=502, detail=f"Unable to fetch fixtures: {str(e)}")
+
 
 # -----------------------
 # Optional: CricketData API ping
