@@ -205,7 +205,7 @@ def _parse_winner_from_result(result_text: str) -> Optional[str]:
 
 def fetch_cricbuzz_ipl_results(
     completed_pairs: Optional[List[str]] = None,
-) -> Dict[str, Dict[str, Any]]:
+) -> tuple:
     """
     Fully automatic IPL result fetcher.
 
@@ -227,38 +227,43 @@ def fetch_cricbuzz_ipl_results(
         # (match IDs are returned separately via match_id_map if needed)
         return {}
 
+    # result_map keyed by cricbuzz match_id (int) -> result dict
     result_map: Dict[str, Dict[str, Any]] = {}
     fetched: set = set()
 
     for pair in completed_pairs:
-        # Normalise to canonical direction
-        t1, t2 = pair.split("-", 1)
+        # pair format: "T1-T2" where T1 and T2 are team codes (e.g. "RCB-SRH")
+        parts = pair.split("-")
+        if len(parts) < 2:
+            continue
+        t1, t2 = parts[0], parts[1]
         canonical = f"{t1}-{t2}"
         reverse = f"{t2}-{t1}"
 
-        # Already fetched
+        # Already fetched this specific match
         if canonical in fetched:
             continue
 
-        match_id = (
+        cb_match_id = (
             KNOWN_MATCH_IDS.get(canonical) or
             KNOWN_MATCH_IDS.get(reverse) or
             match_id_map.get(canonical) or
             match_id_map.get(reverse)
         )
-        if not match_id:
+        if not cb_match_id:
             print(f"[CB] No match ID found for {canonical} — skipping", file=sys.stderr)
             continue
 
-        result = _fetch_scorecard_result(match_id)
+        result = _fetch_scorecard_result(cb_match_id)
         fetched.add(canonical)
         fetched.add(reverse)
 
         if result:
             result["team1_code"] = t1
             result["team2_code"] = t2
-            result_map[canonical] = result
-            result_map[reverse] = result
+            result["cb_match_id"] = cb_match_id  # ← store the cricbuzz match ID
+            # Key by cricbuzz match_id so same-team rematches never collide
+            result_map[str(cb_match_id)] = result
 
-    print(f"[CB] Fetched results for {len(result_map) // 2} completed matches", file=sys.stderr)
-    return result_map
+    print(f"[CB] Fetched results for {len(result_map)} completed matches", file=sys.stderr)
+    return result_map, match_id_map  # ← also return match_id_map

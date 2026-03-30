@@ -430,41 +430,6 @@ def _scrape_url(url: str, headers: Dict[str, str]) -> List[Dict[str, Any]]:
             return []
 
 
-def _mark_past_fixtures_completed(
-    fixtures: List[Dict[str, Any]],
-    scraped_by_teams: Optional[Dict[str, Dict[str, Any]]] = None,
-) -> List[Dict[str, Any]]:
-    now = datetime.utcnow()
-    result = []
-    for f in fixtures:
-        f = dict(f)
-        if f.get("status") == "upcoming" and f.get("date"):
-            try:
-                date_str = f["date"]
-                dt = datetime.fromisoformat(date_str)
-                import datetime as dt_module
-                if dt.tzinfo is not None:
-                    utc_dt = dt.utctimetuple()
-                    import calendar
-                    utc_ts = calendar.timegm(utc_dt)
-                    utc_naive = datetime.utcfromtimestamp(utc_ts)
-                else:
-                    utc_naive = dt
-                hours_past = (now - utc_naive).total_seconds() / 3600
-                if hours_past > 4:
-                    f["status"] = "completed"
-                    # ← ADD THIS BLOCK
-                    if scraped_by_teams:
-                        pair_key = f"{f['team1_code']}-{f['team2_code']}"
-                        scraped = scraped_by_teams.get(pair_key) or scraped_by_teams.get(
-                            f"{f['team2_code']}-{f['team1_code']}"
-                        )
-                        if scraped and scraped.get("winner"):
-                            f["winner"] = scraped["winner"]
-            except Exception:
-                pass
-        result.append(f)
-    return result
 
 def fetch_espn_fixtures(season: int) -> dict:
     if season <= 0:
@@ -514,10 +479,12 @@ def fetch_espn_fixtures(season: int) -> dict:
                 pass
 
         print(f"[CB] Detected {len(completed_pairs)} completed matches to fetch", file=sys.stderr)
-        cricbuzz_map = fetch_cricbuzz_ipl_results(completed_pairs=completed_pairs)
-        print(f"[CB] Cricbuzz returned data for {len(cricbuzz_map) // 2} unique matches", file=sys.stderr)
+        cricbuzz_map, cb_match_id_map = fetch_cricbuzz_ipl_results(completed_pairs=completed_pairs)
+        print(f"[CB] Cricbuzz returned data for {len(cricbuzz_map)} unique matches", file=sys.stderr)
     except Exception as e:
         print(f"[CB] Cricbuzz fetch failed (non-fatal): {e}", file=sys.stderr)
+        # Build a pair->cb_match_id lookup using the series page data
+        # This lets us find the right scorecard for each specific fixture
  
     # ── Build lookup of ESPN scraped fixtures by team-pair ────────────────────
     scraped_by_teams: dict = {}
@@ -540,8 +507,9 @@ def fetch_espn_fixtures(season: int) -> dict:
         seen_ids.add(hf["match_id"])
         f = dict(hf)
 
-        # Apply Cricbuzz status to hardcoded fixtures directly
-        cb = cricbuzz_map.get(pair_key)
+        # Apply Cricbuzz status to hardcoded fixtures — use match_id lookup, not pair key
+        cb_mid = cb_match_id_map.get(pair_key) or cb_match_id_map.get(f"{f['team2_code']}-{f['team1_code']}")
+        cb = cricbuzz_map.get(str(cb_mid)) if cb_mid else None
         if cb:
             if cb.get("status") in ("completed", "live"):
                 f["status"] = cb["status"]
@@ -560,32 +528,62 @@ def fetch_espn_fixtures(season: int) -> dict:
     fixtures.sort(key=lambda x: (x.get("date") or "", x["team1_code"], x["team2_code"]))
  
     # ── Time-based completion fallback ────────────────────────────────────────
-    fixtures = _mark_past_fixtures_completed(fixtures, scraped_by_teams)
+    fixtures = _mark_past_fixtures_completed(fixtures)
  
-    # ── Enrich with Cricbuzz result text + winner ─────────────────────────────
+   # ── Enrich with Cricbuzz result text + winner ─────────────────────────────
     for f in fixtures:
         pair_key = f"{f['team1_code']}-{f['team2_code']}"
-        cb = cricbuzz_map.get(pair_key)
+        reverse_key = f"{f['team2_code']}-{f['team1_code']}"
+
+        # Look up the specific Cricbuzz match ID for this fixture's team pair
+        cb_mid = cb_match_id_map.get(pair_key) or cb_match_id_map.get(reverse_key)
+        cb = cricbuzz_map.get(str(cb_mid)) if cb_mid else None
+
         if not cb:
             continue
- 
-        # Sync status from Cricbuzz if ESPN didn't catch it
-        if cb.get("status") in ("completed", "live") and f.get("status") == "upcoming":
-            f["status"] = cb["status"]
- 
-        # Add result text (the full "X won by Y wkts" string)
-        if cb.get("result") and f.get("status") == "completed":
+
+        # Only enrich if Cricbuzz result is actually for THIS fixture's teams
+        cb_t1 = cb.get("team1_code", "")
+        cb_t2 = cb.get("team2_code", "")
+        fixture_teams = {f["team1_code"], f["team2_code"]}
+        if {cb_t1, cb_t2} != fixture_teams:
+            continue  # safety check — teams don't match, skip
+
+        # Only apply result to completed matches, never to future ones
+        if f.get("status") != "completed":
+            # Sync status from Cricbuzz only if match date has passed
+            if cb.get("status") in ("completed", "live"):
+                try:
+                    from datetime import timezone
+                    date_str = f.get("date", "")
+                    if date_str:
+                        dt = datetime.fromisoformat(date_str)
+                        import calendar
+                        utc_ts = calendar.timegm(dt.utctimetuple())
+                        hours_past = (datetime.utcnow() - datetime.utcfromtimestamp(utc_ts)).total_seconds() / 3600
+                        if hours_past > 4:
+                            f["status"] = cb["status"]
+                        else:
+                            continue  # match hasn't happened yet, skip enrichment
+                except Exception:
+                    continue
+            else:
+                continue
+
+        # Add result text
+        if cb.get("result"):
             f["result"] = cb["result"]
- 
+
         # Add winner code if missing
         if cb.get("winner") and not f.get("winner"):
             f["winner"] = cb["winner"]
- 
+
         # Add scores if available
         if cb.get("team1_score"):
             f["team1_score"] = cb["team1_score"]
         if cb.get("team2_score"):
             f["team2_score"] = cb["team2_score"]
+  
  
     print(
         f"[DEBUG] Scraped: {len(scraped_fixtures)}, hardcoded added: {added_from_hardcoded}, "
