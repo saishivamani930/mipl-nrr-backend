@@ -161,7 +161,6 @@ def _get_team_names_from_competitors(comp: Dict[str, Any]) -> Optional[Tuple[str
 
 
 def _get_status_info(comp: Dict[str, Any]) -> Tuple[str, str, str]:
-    """Return (name, state, detail) from the status block."""
     st = comp.get("status") or {}
     t = st.get("type") or {}
     return (
@@ -172,12 +171,7 @@ def _get_status_info(comp: Dict[str, Any]) -> Tuple[str, str, str]:
 
 
 def _resolve_fixture_status(comp: Dict[str, Any]) -> str:
-    """
-    Return 'completed', 'live', or 'upcoming' based on ESPN competition node.
-    ESPN uses state='post' for completed, state='in' for live, state='pre' for upcoming.
-    """
     name, state, detail = _get_status_info(comp)
-
     if state == "post":
         return "completed"
     if state == "in" or "live" in detail or "in progress" in detail:
@@ -188,7 +182,6 @@ def _resolve_fixture_status(comp: Dict[str, Any]) -> str:
         return "completed"
     if "SCHEDULED" in name or "FIXTURE" in name:
         return "upcoming"
-    # Fallback: check if match date has passed
     date_str = comp.get("date")
     if date_str:
         try:
@@ -201,25 +194,18 @@ def _resolve_fixture_status(comp: Dict[str, Any]) -> str:
 
 
 def _get_winner_code(comp: Dict[str, Any]) -> Optional[str]:
-    """
-    Extract the winner's team code from a completed match competition node.
-    ESPN marks the winner competitor with winner=True or a note like 'W'.
-    """
     comps = comp.get("competitors")
     if not isinstance(comps, list):
         return None
-
     for c in comps:
         if not isinstance(c, dict):
             continue
-        # ESPN sets winner=True on the winning competitor
         if c.get("winner") is True:
             team = c.get("team") or {}
             name = (team.get("displayName") or team.get("name") or "").strip()
             if name:
                 _, code = _team_name_to_code_and_name(name)
                 return code or None
-        # Some ESPN pages use a "note" field
         note = str(c.get("note") or "").strip().upper()
         if note == "W" or note == "WON":
             team = c.get("team") or {}
@@ -227,7 +213,6 @@ def _get_winner_code(comp: Dict[str, Any]) -> Optional[str]:
             if name:
                 _, code = _team_name_to_code_and_name(name)
                 return code or None
-
     return None
 
 
@@ -272,18 +257,12 @@ def _to_fixture_dict(
         "status": status,
         "venue": venue,
     }
-    # Only include winner when we actually know it
     if winner:
         result["winner"] = winner
     return result
 
 
 def _extract_from_next_data(next_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """
-    Extract ALL matches (upcoming + live + completed) from ESPN __NEXT_DATA__.
-    Previously this only collected upcoming matches — that was the root cause of
-    completed matches never appearing in the schedule view.
-    """
     comps = _pick_competition_nodes(next_data)
     fixtures: List[Dict[str, Any]] = []
     seen = set()
@@ -323,8 +302,8 @@ def _extract_from_next_data(next_data: Dict[str, Any]) -> List[Dict[str, Any]]:
     fixtures.sort(key=lambda x: (x.get("date") or "", x["team1_code"], x["team2_code"]))
     return fixtures
 
+
 def _extract_from_espn_api(data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Parse ESPN scoreboard JSON API response."""
     fixtures: List[Dict[str, Any]] = []
     seen = set()
 
@@ -349,7 +328,6 @@ def _extract_from_espn_api(data: Dict[str, Any]) -> List[Dict[str, Any]]:
             if not t1_name or not t2_name:
                 continue
 
-            # Status
             status_obj = comp.get("status") or {}
             type_obj = status_obj.get("type") or {}
             state = str(type_obj.get("state") or "").lower()
@@ -360,7 +338,6 @@ def _extract_from_espn_api(data: Dict[str, Any]) -> List[Dict[str, Any]]:
             else:
                 status = "upcoming"
 
-            # Winner
             winner = None
             if status == "completed":
                 for c in competitors:
@@ -372,15 +349,11 @@ def _extract_from_espn_api(data: Dict[str, Any]) -> List[Dict[str, Any]]:
                             winner = code or None
                         break
 
-            # Venue
             venue = None
             venue_obj = comp.get("venue") or {}
             venue = venue_obj.get("fullName") or venue_obj.get("name")
 
-            # Date
             date_iso = comp.get("date") or event.get("date") or ""
-
-            # Match ID
             match_id = str(comp.get("id") or event.get("id") or "")
 
             item = _to_fixture_dict(
@@ -402,6 +375,7 @@ def _extract_from_espn_api(data: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     fixtures.sort(key=lambda x: (x.get("date") or "", x["team1_code"], x["team2_code"]))
     return fixtures
+
 
 def _scrape_url(url: str, headers: Dict[str, str]) -> List[Dict[str, Any]]:
     print(f"[DEBUG] Fetching: {url}", file=sys.stderr)
@@ -430,21 +404,42 @@ def _scrape_url(url: str, headers: Dict[str, str]) -> List[Dict[str, Any]]:
             return []
 
 
+def _mark_past_fixtures_completed(fixtures: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    now = datetime.utcnow()
+    result = []
+    for f in fixtures:
+        f = dict(f)
+        if f.get("status") == "upcoming" and f.get("date"):
+            try:
+                dt = datetime.fromisoformat(f["date"])
+                import calendar
+                if dt.tzinfo is not None:
+                    utc_ts = calendar.timegm(dt.utctimetuple())
+                    utc_naive = datetime.utcfromtimestamp(utc_ts)
+                else:
+                    utc_naive = dt
+                if (now - utc_naive).total_seconds() / 3600 > 4:
+                    f["status"] = "completed"
+            except Exception:
+                pass
+        result.append(f)
+    return result
+
 
 def fetch_espn_fixtures(season: int) -> dict:
     if season <= 0:
         raise ValueError("season must be a positive integer")
- 
+
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; IPL-NRR-Sim/1.0)",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-IN,en;q=0.9",
         "Connection": "keep-alive",
     }
- 
+
     scraped_fixtures = []
     url_used = ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season)
- 
+
     for url in [
         ESPN_FIXTURES_URL_TEMPLATE.format(series_id=IPL_SERIES_ID),
         ESPN_FIXTURES_SCHEDULE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season),
@@ -456,50 +451,44 @@ def fetch_espn_fixtures(season: int) -> dict:
                 url_used = url
         except Exception as e:
             print(f"[DEBUG] Scrape failed for {url}: {e}", file=sys.stderr)
- 
+
     # ── Cricbuzz: fetch result texts ──────────────────────────────────────────
     cricbuzz_map: dict = {}
-    cb_match_id_map: dict = {}
     try:
-        # Determine which matches are completed based on date
         now_utc = datetime.utcnow()
         completed_pairs = []
         for hf in HARDCODED_IPL_2026_FIXTURES:
             try:
-                dt = datetime.fromisoformat(hf["date"])
                 import calendar
+                dt = datetime.fromisoformat(hf["date"])
                 if dt.tzinfo is not None:
                     utc_ts = calendar.timegm(dt.utctimetuple())
                     utc_dt = datetime.utcfromtimestamp(utc_ts)
                 else:
                     utc_dt = dt
-                hours_past = (now_utc - utc_dt).total_seconds() / 3600
-                if hours_past > 4:
+                if (now_utc - utc_dt).total_seconds() / 3600 > 4:
                     completed_pairs.append(f"{hf['team1_code']}-{hf['team2_code']}")
             except Exception:
                 pass
 
         print(f"[CB] Detected {len(completed_pairs)} completed matches to fetch", file=sys.stderr)
-        cricbuzz_map, cb_match_id_map = fetch_cricbuzz_ipl_results(completed_pairs=completed_pairs)
-        print(f"[CB] Cricbuzz returned data for {len(cricbuzz_map)} unique matches", file=sys.stderr)
+        cricbuzz_map = fetch_cricbuzz_ipl_results(completed_pairs=completed_pairs)
+        print(f"[CB] Cricbuzz returned data for {len(cricbuzz_map)} keys", file=sys.stderr)
     except Exception as e:
         print(f"[CB] Cricbuzz fetch failed (non-fatal): {e}", file=sys.stderr)
         cricbuzz_map = {}
-        cb_match_id_map = {}
-        # Build a pair->cb_match_id lookup using the series page data
-        # This lets us find the right scorecard for each specific fixture
- 
+
     # ── Build lookup of ESPN scraped fixtures by team-pair ────────────────────
     scraped_by_teams: dict = {}
     for f in scraped_fixtures:
         key = f"{f['team1_code']}-{f['team2_code']}"
         scraped_by_teams[key] = f
         scraped_by_teams[f"{f['team2_code']}-{f['team1_code']}"] = f
- 
+
     # ── Merge: ESPN scraped + hardcoded fallback ──────────────────────────────
     seen_ids: set = {f["match_id"] for f in scraped_fixtures}
     fixtures = list(scraped_fixtures)
- 
+
     added_from_hardcoded = 0
     for hf in HARDCODED_IPL_2026_FIXTURES:
         if hf["match_id"] in seen_ids:
@@ -509,92 +498,65 @@ def fetch_espn_fixtures(season: int) -> dict:
             continue
         seen_ids.add(hf["match_id"])
         f = dict(hf)
-
-        # Apply Cricbuzz status to hardcoded fixtures — use match_id lookup, not pair key
-        cb_mid = cb_match_id_map.get(pair_key) or cb_match_id_map.get(f"{f['team2_code']}-{f['team1_code']}")
-        cb = cricbuzz_map.get(str(cb_mid)) if cb_mid else None
-        if cb:
-            if cb.get("status") in ("completed", "live"):
-                f["status"] = cb["status"]
-            if cb.get("winner"):
-                f["winner"] = cb["winner"]
-            if cb.get("result"):
-                f["result"] = cb["result"]
-            if cb.get("team1_score"):
-                f["team1_score"] = cb["team1_score"]
-            if cb.get("team2_score"):
-                f["team2_score"] = cb["team2_score"]
-
         fixtures.append(f)
         added_from_hardcoded += 1
- 
+
     fixtures.sort(key=lambda x: (x.get("date") or "", x["team1_code"], x["team2_code"]))
- 
+
     # ── Time-based completion fallback ────────────────────────────────────────
     fixtures = _mark_past_fixtures_completed(fixtures)
- 
-   # ── Enrich with Cricbuzz result text + winner ─────────────────────────────
+
+    # ── Enrich completed fixtures with Cricbuzz result text + winner ──────────
+    # Only enrich fixtures whose date has passed — never touch future matches
+    now_utc = datetime.utcnow()
     for f in fixtures:
+        # Skip future matches entirely — no Cricbuzz enrichment
+        try:
+            import calendar
+            dt = datetime.fromisoformat(f["date"])
+            if dt.tzinfo is not None:
+                utc_ts = calendar.timegm(dt.utctimetuple())
+                utc_naive = datetime.utcfromtimestamp(utc_ts)
+            else:
+                utc_naive = dt
+            if (now_utc - utc_naive).total_seconds() / 3600 < 4:
+                continue  # match hasn't happened yet
+        except Exception:
+            continue
+
         pair_key = f"{f['team1_code']}-{f['team2_code']}"
         reverse_key = f"{f['team2_code']}-{f['team1_code']}"
 
-        # Look up the specific Cricbuzz match ID for this fixture's team pair
-        cb_mid = cb_match_id_map.get(pair_key) or cb_match_id_map.get(reverse_key)
-        cb = cricbuzz_map.get(str(cb_mid)) if cb_mid else None
+        # Use cb_match_id keyed result if available, fall back to pair key
+        cb_mid = cricbuzz_map.get(pair_key, {}).get("cb_match_id")
+        cb = cricbuzz_map.get(str(cb_mid)) if cb_mid else cricbuzz_map.get(pair_key)
+        if not cb:
+            cb = cricbuzz_map.get(reverse_key)
 
         if not cb:
             continue
 
-        # Only enrich if Cricbuzz result is actually for THIS fixture's teams
-        cb_t1 = cb.get("team1_code", "")
-        cb_t2 = cb.get("team2_code", "")
-        fixture_teams = {f["team1_code"], f["team2_code"]}
-        if {cb_t1, cb_t2} != fixture_teams:
-            continue  # safety check — teams don't match, skip
-
-        # Only apply result to completed matches, never to future ones
         if f.get("status") != "completed":
-            # Sync status from Cricbuzz only if match date has passed
-            if cb.get("status") in ("completed", "live"):
-                try:
-                    from datetime import timezone
-                    date_str = f.get("date", "")
-                    if date_str:
-                        dt = datetime.fromisoformat(date_str)
-                        import calendar
-                        utc_ts = calendar.timegm(dt.utctimetuple())
-                        hours_past = (datetime.utcnow() - datetime.utcfromtimestamp(utc_ts)).total_seconds() / 3600
-                        if hours_past > 4:
-                            f["status"] = cb["status"]
-                        else:
-                            continue  # match hasn't happened yet, skip enrichment
-                except Exception:
-                    continue
-            else:
-                continue
+            f["status"] = "completed"
 
-        # Add result text
-        if cb.get("result"):
+        if cb.get("result") and not f.get("result"):
             f["result"] = cb["result"]
 
-        # Add winner code if missing
         if cb.get("winner") and not f.get("winner"):
             f["winner"] = cb["winner"]
 
-        # Add scores if available
         if cb.get("team1_score"):
             f["team1_score"] = cb["team1_score"]
         if cb.get("team2_score"):
             f["team2_score"] = cb["team2_score"]
-  
- 
+
     print(
         f"[DEBUG] Scraped: {len(scraped_fixtures)}, hardcoded added: {added_from_hardcoded}, "
         f"total: {len(fixtures)}, cricbuzz enriched: {sum(1 for f in fixtures if f.get('result'))}",
         file=sys.stderr,
     )
- 
-    resp = {
+
+    return {
         "season": season,
         "source": "espn+cricbuzz",
         "url_used": url_used,
@@ -602,5 +564,3 @@ def fetch_espn_fixtures(season: int) -> dict:
         "fixtures": fixtures,
         "fixtures_count": len(fixtures),
     }
- 
-    return resp

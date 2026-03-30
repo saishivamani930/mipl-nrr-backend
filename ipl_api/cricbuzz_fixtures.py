@@ -148,40 +148,17 @@ def _fetch_scorecard_result(match_id: int) -> Optional[Dict[str, Any]]:
         print(f"[CB] Scorecard fetch failed for {match_id}: {e}", file=sys.stderr)
         return None
 
-    # Strategy 1: extract from __next_f JSON fragments
-    fragments = re.findall(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)', html, re.DOTALL)
-    for frag in fragments:
-        try:
-            unescaped = frag.encode().decode("unicode_escape")
-        except Exception:
-            unescaped = frag
-
-        if "won" not in unescaped.lower():
-            continue
-
-        for pattern in [
-            r'"status"\s*:\s*"([^"]*won[^"]*)"',
-            r'"statusText"\s*:\s*"([^"]*won[^"]*)"',
-            r'"result"\s*:\s*"([^"]*won[^"]*)"',
-        ]:
-            m = re.search(pattern, unescaped, re.IGNORECASE)
-            if m:
-                result_text = m.group(1).strip()
-                winner_code = _parse_winner_from_result(result_text)
-                if winner_code:
-                    print(f"[CB] Match {match_id} result: {result_text}", file=sys.stderr)
-                    return {"status": "completed", "winner": winner_code, "result": result_text}
-
-    # Strategy 2: raw HTML fallback
-    m = re.search(r'([A-Za-z ]{5,50}won by[^<"]{5,60})', html)
-    if m:
-        result_text = m.group(1).strip()
+    # Find all "won by" strings, skip ones with backslashes (sidebar/JSON noise)
+    # Pick the first one belonging to a known IPL team
+    all_won_by = re.findall(r'([A-Za-z ]{5,50}won by[^<"\\]{5,60})', html)
+    for result_text in all_won_by:
+        result_text = result_text.strip()
         winner_code = _parse_winner_from_result(result_text)
         if winner_code:
-            print(f"[CB] Match {match_id} result (fallback): {result_text}", file=sys.stderr)
+            print(f"[CB] Match {match_id} result: {result_text}", file=sys.stderr)
             return {"status": "completed", "winner": winner_code, "result": result_text}
 
-    # Strategy 3: check for "tied" or "no result"
+    # Check for tied/no result/abandoned
     if re.search(r'match tied|no result|abandoned', html, re.IGNORECASE):
         print(f"[CB] Match {match_id}: tied/no result", file=sys.stderr)
         return {"status": "completed", "winner": None, "result": "No result"}
@@ -205,50 +182,39 @@ def _parse_winner_from_result(result_text: str) -> Optional[str]:
 
 def fetch_cricbuzz_ipl_results(
     completed_pairs: Optional[List[str]] = None,
-) -> tuple:
+) -> Dict[str, Dict[str, Any]]:
     """
-    Fully automatic IPL result fetcher.
+    Fetch IPL results from Cricbuzz.
 
-    1. Fetches series page to get match IDs for all 70 fixtures.
-    2. For each pair in completed_pairs (matches whose date has passed),
-       fetches the individual scorecard page to get result + winner.
+    Returns a dict keyed by BOTH "T1-T2" and "T2-T1" for each completed match,
+    BUT for rematches between the same teams, keys include the Cricbuzz match_id
+    as a suffix to avoid collision: "T1-T2-{match_id}" and "T2-T1-{match_id}".
 
-    Args:
-        completed_pairs: list of "T1-T2" pair keys for matches to fetch results for.
-                         If None, only match IDs are returned with no scorecard fetching.
-
-    Returns dict keyed by both "T1-T2" and "T2-T1".
+    The plain pair keys "T1-T2" always point to the MOST RECENTLY played match.
     """
-    # Step 1: get all match IDs from series page
     match_id_map = _fetch_all_match_ids()
 
     if not completed_pairs:
-        # No completed matches to fetch — return empty result map
-        # (match IDs are returned separately via match_id_map if needed)
-        return {}, match_id_map
+        return {}
 
-    # result_map keyed by cricbuzz match_id (int) -> result dict
     result_map: Dict[str, Dict[str, Any]] = {}
     fetched: set = set()
 
     for pair in completed_pairs:
-        # pair format: "T1-T2" where T1 and T2 are team codes (e.g. "RCB-SRH", "PBKS-GT")
-        # Split on first "-" only to handle codes of any length
         if "-" not in pair:
             continue
         t1, t2 = pair.split("-", 1)
         canonical = f"{t1}-{t2}"
         reverse = f"{t2}-{t1}"
 
-        # Already fetched this specific match
         if canonical in fetched:
             continue
 
         cb_match_id = (
-            KNOWN_MATCH_IDS.get(canonical) or
-            KNOWN_MATCH_IDS.get(reverse) or
-            match_id_map.get(canonical) or
-            match_id_map.get(reverse)
+            KNOWN_MATCH_IDS.get(canonical)
+            or KNOWN_MATCH_IDS.get(reverse)
+            or match_id_map.get(canonical)
+            or match_id_map.get(reverse)
         )
         if not cb_match_id:
             print(f"[CB] No match ID found for {canonical} — skipping", file=sys.stderr)
@@ -261,9 +227,17 @@ def fetch_cricbuzz_ipl_results(
         if result:
             result["team1_code"] = t1
             result["team2_code"] = t2
-            result["cb_match_id"] = cb_match_id  # ← store the cricbuzz match ID
-            # Key by cricbuzz match_id so same-team rematches never collide
-            result_map[str(cb_match_id)] = result
+            result["cb_match_id"] = cb_match_id
+            result["match_date"] = pair  # store original pair+date context
 
-    print(f"[CB] Fetched results for {len(result_map)} completed matches", file=sys.stderr)
-    return result_map, match_id_map  # ← also return match_id_map
+            # Key by match_id string so rematches never collide
+            mid_key = str(cb_match_id)
+            result_map[mid_key] = result
+
+            # Also store plain pair keys pointing to this result
+            # (will be overwritten by later matches between same teams, which is correct)
+            result_map[canonical] = result
+            result_map[reverse] = result
+
+    print(f"[CB] Fetched results for {len([k for k in result_map if '-' not in k])} completed matches", file=sys.stderr)
+    return result_map
