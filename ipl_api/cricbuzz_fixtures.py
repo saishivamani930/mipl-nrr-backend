@@ -286,10 +286,10 @@ def fetch_cricbuzz_ipl_results(
             continue
 
         cb_match_id = (
-            match_id_map.get(canonical)
-            or match_id_map.get(reverse)
-            or KNOWN_MATCH_IDS.get(date_key)
+            KNOWN_MATCH_IDS.get(date_key)
             or KNOWN_MATCH_IDS.get(reverse_date_key)
+            or match_id_map.get(canonical)
+            or match_id_map.get(reverse)
         )
         if not cb_match_id:
             print(f"[CB] No match ID found for {canonical} — skipping", file=sys.stderr)
