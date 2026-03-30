@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -405,20 +405,18 @@ def _scrape_url(url: str, headers: Dict[str, str]) -> List[Dict[str, Any]]:
 
 
 def _mark_past_fixtures_completed(fixtures: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     result = []
     for f in fixtures:
         f = dict(f)
         if f.get("status") == "upcoming" and f.get("date"):
             try:
                 dt = datetime.fromisoformat(f["date"])
-                import calendar
                 if dt.tzinfo is not None:
-                    utc_ts = calendar.timegm(dt.utctimetuple())
-                    utc_naive = datetime.utcfromtimestamp(utc_ts)
+                    dt_utc = dt.astimezone(timezone.utc)
                 else:
-                    utc_naive = dt
-                if (now - utc_naive).total_seconds() / 3600 > 4:
+                    dt_utc = dt.replace(tzinfo=timezone.utc)
+                if (now - dt_utc).total_seconds() / 3600 > 4:
                     f["status"] = "completed"
             except Exception:
                 pass
@@ -457,16 +455,15 @@ def fetch_espn_fixtures(season: int) -> dict:
     try:
         now_utc = datetime.utcnow()
         completed_pairs = []
+        now_utc = datetime.now(timezone.utc)
         for hf in HARDCODED_IPL_2026_FIXTURES:
             try:
-                import calendar
                 dt = datetime.fromisoformat(hf["date"])
                 if dt.tzinfo is not None:
-                    utc_ts = calendar.timegm(dt.utctimetuple())
-                    utc_dt = datetime.utcfromtimestamp(utc_ts)
+                    dt_utc = dt.astimezone(timezone.utc)
                 else:
-                    utc_dt = dt
-                if (now_utc - utc_dt).total_seconds() / 3600 > 4:
+                    dt_utc = dt.replace(tzinfo=timezone.utc)
+                if (now_utc - dt_utc).total_seconds() / 3600 > 4:
                     completed_pairs.append(f"{hf['team1_code']}-{hf['team2_code']}")
             except Exception:
                 pass
@@ -508,18 +505,16 @@ def fetch_espn_fixtures(season: int) -> dict:
 
     # ── Enrich completed fixtures with Cricbuzz result text + winner ──────────
     # Only enrich fixtures whose date has passed — never touch future matches
-    now_utc = datetime.utcnow()
+    
     for f in fixtures:
         # Skip future matches entirely — no Cricbuzz enrichment
         try:
-            import calendar
             dt = datetime.fromisoformat(f["date"])
             if dt.tzinfo is not None:
-                utc_ts = calendar.timegm(dt.utctimetuple())
-                utc_naive = datetime.utcfromtimestamp(utc_ts)
+                dt_utc = dt.astimezone(timezone.utc)
             else:
-                utc_naive = dt
-            if (now_utc - utc_naive).total_seconds() / 3600 < 4:
+                dt_utc = dt.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - dt_utc).total_seconds() / 3600 < 4:
                 continue  # match hasn't happened yet
         except Exception:
             continue
