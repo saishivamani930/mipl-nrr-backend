@@ -225,18 +225,18 @@ def fetch_cricbuzz_ipl_results(
     if not completed_pairs:
         # No completed matches to fetch — return empty result map
         # (match IDs are returned separately via match_id_map if needed)
-        return {}
+        return {}, match_id_map
 
     # result_map keyed by cricbuzz match_id (int) -> result dict
     result_map: Dict[str, Dict[str, Any]] = {}
     fetched: set = set()
 
     for pair in completed_pairs:
-        # pair format: "T1-T2" where T1 and T2 are team codes (e.g. "RCB-SRH")
-        parts = pair.split("-")
-        if len(parts) < 2:
+        # pair format: "T1-T2" where T1 and T2 are team codes (e.g. "RCB-SRH", "PBKS-GT")
+        # Split on first "-" only to handle codes of any length
+        if "-" not in pair:
             continue
-        t1, t2 = parts[0], parts[1]
+        t1, t2 = pair.split("-", 1)
         canonical = f"{t1}-{t2}"
         reverse = f"{t2}-{t1}"
 

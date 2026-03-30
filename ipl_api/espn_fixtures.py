@@ -459,6 +459,7 @@ def fetch_espn_fixtures(season: int) -> dict:
  
     # ── Cricbuzz: fetch result texts ──────────────────────────────────────────
     cricbuzz_map: dict = {}
+    cb_match_id_map: dict = {}
     try:
         # Determine which matches are completed based on date
         now_utc = datetime.utcnow()
@@ -483,6 +484,8 @@ def fetch_espn_fixtures(season: int) -> dict:
         print(f"[CB] Cricbuzz returned data for {len(cricbuzz_map)} unique matches", file=sys.stderr)
     except Exception as e:
         print(f"[CB] Cricbuzz fetch failed (non-fatal): {e}", file=sys.stderr)
+        cricbuzz_map = {}
+        cb_match_id_map = {}
         # Build a pair->cb_match_id lookup using the series page data
         # This lets us find the right scorecard for each specific fixture
  
