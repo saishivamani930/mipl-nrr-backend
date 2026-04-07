@@ -215,16 +215,10 @@ def _fetch_scorecard_result(match_id: int) -> Optional[Dict[str, Any]]:
     except Exception as e:
         print(f"[CB] Scorecard fetch failed for {match_id}: {e}", file=sys.stderr)
         return None
-    
-    # Check for tied/no result/abandoned
-    if re.search(r'match tied|no result|abandoned', html, re.IGNORECASE):
-        print(f"[CB] Match {match_id}: tied/no result", file=sys.stderr)
-        return {"status": "completed", "winner": None, "result": "No result"}
 
-    
-
-    # Find all "won by" strings, skip ones with backslashes (sidebar/JSON noise)
-    # Pick the first one belonging to a known IPL team
+    # First try to find a winner — this takes priority over everything else.
+    # The "won by" text for the ACTUAL match appears reliably in the page body,
+    # whereas "no result" / "abandoned" can appear in sidebar links for OTHER matches.
     all_won_by = re.findall(r'([A-Za-z ]{5,50}won by[^<"\\]{5,60})', html)
     for result_text in all_won_by:
         result_text = result_text.strip()
@@ -232,12 +226,20 @@ def _fetch_scorecard_result(match_id: int) -> Optional[Dict[str, Any]]:
         if winner_code:
             print(f"[CB] Match {match_id} result: {result_text}", file=sys.stderr)
             return {"status": "completed", "winner": winner_code, "result": result_text}
-    
+
+    # Only check for tied/no result/abandoned AFTER confirming no winner was found.
+    # This prevents sidebar references to other matches triggering a false "No result".
+    # Use a stricter pattern that looks for it as a standalone page-level status.
+    if re.search(
+        r'(?:^|[>\s])(match tied|no result|abandoned)(?:[<\s]|$)',
+        html,
+        re.IGNORECASE | re.MULTILINE,
+    ):
+        print(f"[CB] Match {match_id}: tied/no result/abandoned", file=sys.stderr)
+        return {"status": "no_result", "winner": None, "result": "No result"}
+
     print(f"[CB] Could not parse result for match {match_id}", file=sys.stderr)
     return None
-
-    
-
 
 def _parse_winner_from_result(result_text: str) -> Optional[str]:
     """Extract winner code from result string like 'Royal Challengers Bengaluru won by 6 wkts'."""
