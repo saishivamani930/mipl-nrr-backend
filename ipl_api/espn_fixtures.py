@@ -41,7 +41,7 @@ HARDCODED_IPL_2026_FIXTURES: List[Dict[str, Any]] = [
     {"match_id": "GT-RR-2026-04-04T19:30:00+05:30", "date": "2026-04-04T19:30:00+05:30", "team1": "Gujarat Titans", "team2": "Rajasthan Royals", "team1_code": "GT", "team2_code": "RR", "status": "upcoming", "venue": "Ahmedabad"},
     {"match_id": "SRH-LSG-2026-04-05T15:30:00+05:30", "date": "2026-04-05T15:30:00+05:30", "team1": "Sunrisers Hyderabad", "team2": "Lucknow Super Giants", "team1_code": "SRH", "team2_code": "LSG", "status": "upcoming", "venue": "Hyderabad"},
     {"match_id": "RCB-CSK-2026-04-05T19:30:00+05:30", "date": "2026-04-05T19:30:00+05:30", "team1": "Royal Challengers Bengaluru", "team2": "Chennai Super Kings", "team1_code": "RCB", "team2_code": "CSK", "status": "upcoming", "venue": "Bengaluru"},
-    {"match_id": "KKR-PBKS-2026-04-06T19:30:00+05:30", "date": "2026-04-06T19:30:00+05:30", "team1": "Kolkata Knight Riders", "team2": "Punjab Kings", "team1_code": "KKR", "team2_code": "PBKS", "status": "upcoming", "venue": "Kolkata"},
+    {"match_id": "KKR-PBKS-2026-04-06T19:30:00+05:30", "date": "2026-04-06T19:30:00+05:30", "team1": "Kolkata Knight Riders", "team2": "Punjab Kings", "team1_code": "KKR", "team2_code": "PBKS", "status": "no_result", "venue": "Kolkata", "result": "No Result"},
     {"match_id": "RR-MI-2026-04-07T19:30:00+05:30", "date": "2026-04-07T19:30:00+05:30", "team1": "Rajasthan Royals", "team2": "Mumbai Indians", "team1_code": "RR", "team2_code": "MI", "status": "upcoming", "venue": "Guwahati"},
     {"match_id": "DC-GT-2026-04-08T19:30:00+05:30", "date": "2026-04-08T19:30:00+05:30", "team1": "Delhi Capitals", "team2": "Gujarat Titans", "team1_code": "DC", "team2_code": "GT", "status": "upcoming", "venue": "Delhi"},
     {"match_id": "KKR-LSG-2026-04-09T19:30:00+05:30", "date": "2026-04-09T19:30:00+05:30", "team1": "Kolkata Knight Riders", "team2": "Lucknow Super Giants", "team1_code": "KKR", "team2_code": "LSG", "status": "upcoming", "venue": "Kolkata"},
@@ -553,7 +553,7 @@ def fetch_espn_fixtures(season: int) -> dict:
             f["team1_score"] = cb["team1_score"]
         if cb.get("team2_score"):
             f["team2_score"] = cb["team2_score"]
-            
+
     print(
         f"[DEBUG] Scraped: {len(scraped_fixtures)}, hardcoded added: {added_from_hardcoded}, "
         f"total: {len(fixtures)}, cricbuzz enriched: {sum(1 for f in fixtures if f.get('result'))}",
