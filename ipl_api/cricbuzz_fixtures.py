@@ -215,6 +215,13 @@ def _fetch_scorecard_result(match_id: int) -> Optional[Dict[str, Any]]:
     except Exception as e:
         print(f"[CB] Scorecard fetch failed for {match_id}: {e}", file=sys.stderr)
         return None
+    
+    # Check for tied/no result/abandoned
+    if re.search(r'match tied|no result|abandoned', html, re.IGNORECASE):
+        print(f"[CB] Match {match_id}: tied/no result", file=sys.stderr)
+        return {"status": "completed", "winner": None, "result": "No result"}
+
+    
 
     # Find all "won by" strings, skip ones with backslashes (sidebar/JSON noise)
     # Pick the first one belonging to a known IPL team
@@ -225,14 +232,11 @@ def _fetch_scorecard_result(match_id: int) -> Optional[Dict[str, Any]]:
         if winner_code:
             print(f"[CB] Match {match_id} result: {result_text}", file=sys.stderr)
             return {"status": "completed", "winner": winner_code, "result": result_text}
-
-    # Check for tied/no result/abandoned
-    if re.search(r'match tied|no result|abandoned', html, re.IGNORECASE):
-        print(f"[CB] Match {match_id}: tied/no result", file=sys.stderr)
-        return {"status": "completed", "winner": None, "result": "No result"}
-
+    
     print(f"[CB] Could not parse result for match {match_id}", file=sys.stderr)
     return None
+
+    
 
 
 def _parse_winner_from_result(result_text: str) -> Optional[str]:

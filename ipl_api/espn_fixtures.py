@@ -508,7 +508,6 @@ def fetch_espn_fixtures(season: int) -> dict:
     # Only enrich fixtures whose date has passed — never touch future matches
     
     for f in fixtures:
-        # Skip future matches entirely — no Cricbuzz enrichment
         try:
             dt = datetime.fromisoformat(f["date"])
             if dt.tzinfo is not None:
@@ -516,14 +515,17 @@ def fetch_espn_fixtures(season: int) -> dict:
             else:
                 dt_utc = dt.replace(tzinfo=timezone.utc)
             if (datetime.now(timezone.utc) - dt_utc).total_seconds() / 3600 < 4:
-                continue  # match hasn't happened yet
+                continue
         except Exception:
+            continue
+
+        # Skip if hardcoded data already has a trusted result
+        if f.get("winner_code") and f.get("result"):
             continue
 
         pair_key = f"{f['team1_code']}-{f['team2_code']}"
         reverse_key = f"{f['team2_code']}-{f['team1_code']}"
 
-        # Use cb_match_id keyed result if available, fall back to pair key
         cb_mid = cricbuzz_map.get(pair_key, {}).get("cb_match_id")
         cb = cricbuzz_map.get(str(cb_mid)) if cb_mid else cricbuzz_map.get(pair_key)
         if not cb:
@@ -532,20 +534,26 @@ def fetch_espn_fixtures(season: int) -> dict:
         if not cb:
             continue
 
-        if f.get("status") != "completed":
+        cb_status = cb.get("status")  # "completed" or "no_result"
+
+        if cb_status == "no_result":
+            f["status"] = "no_result"
+            f["result"] = cb.get("result", "No Result")
+            f.pop("winner", None)
+            f.pop("winner_code", None)
+        elif cb_status == "completed":
             f["status"] = "completed"
-
-        if cb.get("result") and not f.get("result"):
-            f["result"] = cb["result"]
-
-        if cb.get("winner") and not f.get("winner"):
-            f["winner"] = cb["winner"]
+            if cb.get("result"):
+                f["result"] = cb["result"]
+            if cb.get("winner") and not f.get("winner_code"):
+                f["winner"] = cb["winner"]
+                f["winner_code"] = cb["winner"]
 
         if cb.get("team1_score"):
             f["team1_score"] = cb["team1_score"]
         if cb.get("team2_score"):
             f["team2_score"] = cb["team2_score"]
-
+            
     print(
         f"[DEBUG] Scraped: {len(scraped_fixtures)}, hardcoded added: {added_from_hardcoded}, "
         f"total: {len(fixtures)}, cricbuzz enriched: {sum(1 for f in fixtures if f.get('result'))}",
