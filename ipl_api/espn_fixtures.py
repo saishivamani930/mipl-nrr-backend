@@ -520,7 +520,7 @@ def fetch_espn_fixtures(season: int) -> dict:
             continue
 
         # Skip if hardcoded data already has a trusted result
-        if f.get("winner_code") and f.get("result"):
+        if f.get("winner_code") or f.get("status") == "no_result":
             continue
 
         pair_key = f"{f['team1_code']}-{f['team2_code']}"
