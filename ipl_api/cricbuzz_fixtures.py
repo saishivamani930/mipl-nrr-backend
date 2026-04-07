@@ -201,10 +201,6 @@ def _fetch_all_match_ids() -> Dict[str, int]:
 
 
 def _fetch_scorecard_result(match_id: int) -> Optional[Dict[str, Any]]:
-    """
-    Fetch result for a single completed match from its Cricbuzz scorecard page.
-    Returns dict with keys: status, winner, result
-    """
     url = f"https://www.cricbuzz.com/live-cricket-scores/{match_id}/"
     print(f"[CB] Fetching scorecard: {url}", file=sys.stderr)
 
@@ -216,30 +212,55 @@ def _fetch_scorecard_result(match_id: int) -> Optional[Dict[str, Any]]:
         print(f"[CB] Scorecard fetch failed for {match_id}: {e}", file=sys.stderr)
         return None
 
-    # First try to find a winner — this takes priority over everything else.
-    # The "won by" text for the ACTUAL match appears reliably in the page body,
-    # whereas "no result" / "abandoned" can appear in sidebar links for OTHER matches.
-    all_won_by = re.findall(r'([A-Za-z ]{5,50}won by[^<"\\]{5,60})', html)
-    for result_text in all_won_by:
-        result_text = result_text.strip()
-        winner_code = _parse_winner_from_result(result_text)
-        if winner_code:
-            print(f"[CB] Match {match_id} result: {result_text}", file=sys.stderr)
-            return {"status": "completed", "winner": winner_code, "result": result_text}
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
 
-    # Only check for tied/no result/abandoned AFTER confirming no winner was found.
-    # This prevents sidebar references to other matches triggering a false "No result".
-    # Use a stricter pattern that looks for it as a standalone page-level status.
-    if re.search(
-        r'(?:^|[>\s])(match tied|no result|abandoned)(?:[<\s]|$)',
-        html,
-        re.IGNORECASE | re.MULTILINE,
-    ):
-        print(f"[CB] Match {match_id}: tied/no result/abandoned", file=sys.stderr)
-        return {"status": "no_result", "winner": None, "result": "No result"}
+    # The match status/result is in a specific element on Cricbuzz.
+    # We look for it in known result containers only, not the full page.
+    result_text = None
+
+    # Try the dedicated status/result div first
+    for selector in [
+        "div.cb-col.cb-col-100.cb-series-srs-title",  # match status banner
+        "div.cb-text-complete",                         # completed match text
+        "div.cb-col.cb-col-100.cb-scrd-sub-hdr.cb-lv-main-col", # scorecard subheader
+    ]:
+        el = soup.select_one(selector)
+        if el:
+            text = el.get_text(separator=" ", strip=True)
+            if text:
+                result_text = text
+                break
+
+    # Fallback: look in the page title or og:description meta tag
+    # These reliably contain only THIS match's result
+    if not result_text:
+        meta = soup.find("meta", {"property": "og:description"}) or soup.find("meta", {"name": "description"})
+        if meta:
+            result_text = meta.get("content", "")
+
+    if not result_text:
+        print(f"[CB] Could not find result element for match {match_id}", file=sys.stderr)
+        return None
+
+    print(f"[CB] Match {match_id} result text: {result_text}", file=sys.stderr)
+
+    # Check no result / abandoned / tied
+    if re.search(r'\b(no result|abandoned|match tied)\b', result_text, re.IGNORECASE):
+        return {"status": "no_result", "winner": None, "result": "No Result"}
+
+    # Check won by
+    won_by_matches = re.findall(r'([A-Za-z ]{5,50}won by[^<"\\]{5,60})', result_text)
+    for text in won_by_matches:
+        text = text.strip()
+        winner_code = _parse_winner_from_result(text)
+        if winner_code:
+            print(f"[CB] Match {match_id} result: {text}", file=sys.stderr)
+            return {"status": "completed", "winner": winner_code, "result": text}
 
     print(f"[CB] Could not parse result for match {match_id}", file=sys.stderr)
     return None
+
 
 def _parse_winner_from_result(result_text: str) -> Optional[str]:
     """Extract winner code from result string like 'Royal Challengers Bengaluru won by 6 wkts'."""
