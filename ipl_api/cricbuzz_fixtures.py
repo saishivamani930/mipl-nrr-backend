@@ -8,6 +8,9 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+import random
+import time
+
 CRICBUZZ_IPL_SERIES_ID = 9241
 KNOWN_MATCH_IDS: Dict[str, int] = {
     "RCB-SRH-2026-03-28": 149618,
@@ -109,20 +112,6 @@ def _name_to_code(name: str) -> Optional[str]:
 
 def _short_to_code(short: str) -> Optional[str]:
     return CB_SHORT_TO_CODE.get(short.strip().upper())
-
-
-def _get_headers() -> Dict[str, str]:
-    return {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-IN,en;q=0.9",
-        "Referer": "https://www.cricbuzz.com",
-    }
-
 
 def _extract_next_f_json_objects(html: str, series_id: int) -> List[Dict[str, Any]]:
     """Extract all match JSON objects from __next_f fragments."""
@@ -352,6 +341,7 @@ def fetch_cricbuzz_ipl_results(
             print(f"[CB] No match ID found for {canonical} — skipping", file=sys.stderr)
             continue
 
+        time.sleep(random.uniform(0.5, 2.0))
         result = _fetch_scorecard_result(cb_match_id)
         fetched.add(canonical)
         fetched.add(reverse)
@@ -413,6 +403,8 @@ def fetch_cricbuzz_innings_aggregates(
             print(f"[CB] No match ID for innings: {canonical}", file=sys.stderr)
             continue
 
+        # Random delay between requests to avoid rate limiting
+        time.sleep(random.uniform(1.0, 3.0))
         innings = _fetch_scorecard_innings(cb_match_id)
         fetched.add(canonical)
         fetched.add(f"{t2}-{t1}")
@@ -425,3 +417,24 @@ def fetch_cricbuzz_innings_aggregates(
 
     print(f"[CB] Fetched innings for {len(aggregates)//2} matches", file=sys.stderr)
     return aggregates
+
+
+_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+]
+
+def _get_headers() -> Dict[str, str]:
+    return {
+        "User-Agent": random.choice(_USER_AGENTS),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-IN,en;q=0.9",
+        "Referer": "https://www.cricbuzz.com",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "DNT": "1",
+    }
