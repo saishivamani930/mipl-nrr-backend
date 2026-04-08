@@ -19,6 +19,8 @@ from ipl_api.cricbuzz_fixtures import fetch_cricbuzz_ipl_results
 from datetime import datetime, timezone
 from ipl_api.espn_fixtures import fetch_espn_fixtures, HARDCODED_IPL_2026_FIXTURES
 
+from ipl_api import cache as _cache
+
 
 class StandingsScrapeError(Exception):
     pass
@@ -564,15 +566,22 @@ def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
             date_only = f["date"][:10]
             completed_pairs.append(f"{t1}-{t2}-{date_only}")
 
-    # Fetch innings aggregates from Cricbuzz scorecards
+    # Fetch innings aggregates from Cricbuzz scorecards (cached for 10 min)
     innings_map: Dict[str, Any] = {}
     try:
-        innings_map = fetch_cricbuzz_innings_aggregates(completed_pairs)
-        logger.info(f"[STANDINGS] Innings aggregates fetched for {len(innings_map)//2} matches")
+        cache_key = _cache.make_key("innings_aggregates", str(season))
+        innings_map = _cache.get(cache_key) or {}
+        if not innings_map:
+            innings_map = fetch_cricbuzz_innings_aggregates(completed_pairs)
+            if innings_map:
+                _cache.set(cache_key, innings_map, ttl_seconds=600)
+            logger.info(f"[STANDINGS] Innings fetched for {len(innings_map)//2} matches")
+        else:
+            logger.info(f"[STANDINGS] Innings served from cache ({len(innings_map)//2} matches)")
     except Exception as e:
         logger.warning(f"[STANDINGS] Innings fetch failed (non-fatal): {e}")
 
-    # Build standings
+    # Build standings from fixtures
     for f in fixtures:
         t1 = f.get("team1_code")
         t2 = f.get("team2_code")
@@ -617,7 +626,6 @@ def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
             pair_key = f"{t1}-{t2}"
             innings = innings_map.get(pair_key)
             if innings:
-                # t1 batted first (innings order from scorecard)
                 teams[t1]["runs_for"]      += innings["team1_runs"]
                 teams[t1]["balls_for"]     += innings["team1_balls"]
                 teams[t1]["runs_against"]  += innings["team2_runs"]
@@ -628,9 +636,20 @@ def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
                 teams[t2]["runs_against"]  += innings["team1_runs"]
                 teams[t2]["balls_against"] += innings["team1_balls"]
 
+    # ── Calculate NRR from aggregates ──────────────────────────────────────
+    for t in teams.values():
+        rf = t["runs_for"]
+        bf = t["balls_for"]
+        ra = t["runs_against"]
+        ba = t["balls_against"]
+        if bf > 0 and ba > 0:
+            t["nrr"] = round((rf / bf * 6) - (ra / ba * 6), 3)
+        else:
+            t["nrr"] = None  # No innings data yet — display as blank
+
     sorted_teams = sorted(
         teams.values(),
-        key=lambda x: (x["points"], x.get("runs_for", 0)),
+        key=lambda x: (x["points"], x["nrr"] or 0),
         reverse=True,
     )
 
