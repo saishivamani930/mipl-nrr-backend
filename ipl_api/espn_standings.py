@@ -288,13 +288,16 @@ def _parse_table_from_html(html: str, season: int) -> Optional[Dict[str, Any]]:
             colmap[c] = "points"
         elif "nrr" in lc:
             colmap[c] = "nrr"
-        elif lc == "for":
+        elif lc in ("for", "rf", "runs for", "score for", "f") or (lc.endswith(" for") and "against" not in lc):
             colmap[c] = "for"
-        elif "against" in lc:
+        elif "against" in lc or lc in ("ra", "runs against", "score against", "a"):
             colmap[c] = "against"
 
     df = df.rename(columns=colmap)
     logger.info(f"[STANDINGS] Mapped columns: {list(df.columns)}")
+    has_for = "for" in df.columns
+    has_against = "against" in df.columns
+    logger.info(f"[STANDINGS] has_for={has_for}, has_against={has_against}")
 
     teams = []
 
