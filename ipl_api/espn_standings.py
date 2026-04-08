@@ -15,6 +15,10 @@ from ipl_api.nrr_math import overs_to_balls
 
 from io import StringIO
 
+from ipl_api.cricbuzz_fixtures import fetch_cricbuzz_ipl_results
+from datetime import datetime, timezone
+from ipl_api.espn_fixtures import fetch_espn_fixtures, HARDCODED_IPL_2026_FIXTURES
+
 
 class StandingsScrapeError(Exception):
     pass
@@ -335,27 +339,145 @@ def _parse_table_from_html(html: str, season: int) -> Optional[Dict[str, Any]]:
         "last_updated_utc": datetime.utcnow().isoformat() + "Z",
         "teams": teams,
     }
-
-
+def fetch_cricbuzz_points_table(season: int) -> Optional[Dict[str, Any]]:
+    """
+    Scrape the IPL points table from Cricbuzz.
+    Returns the same shape as _parse_table_from_html(), or None on failure.
+    Used as a fallback when all ESPN URLs fail.
+    """
+    from bs4 import BeautifulSoup
+ 
+    CRICBUZZ_SERIES_ID = 9241
+    url = f"https://www.cricbuzz.com/cricket-series/{CRICBUZZ_SERIES_ID}/indian-premier-league-{season}/points-table"
+    logger.info(f"[STANDINGS] Trying Cricbuzz points table: {url}")
+ 
+    try:
+        html = _fetch_html(url)
+    except Exception as e:
+        logger.warning(f"[STANDINGS] Cricbuzz points table fetch failed: {e}")
+        return None
+ 
+    CB_CODE_MAP: Dict[str, str] = {
+        "rcb": "RCB", "royal challengers bengaluru": "RCB", "royal challengers bangalore": "RCB",
+        "csk": "CSK", "chennai super kings": "CSK",
+        "mi": "MI",  "mumbai indians": "MI",
+        "kkr": "KKR", "kolkata knight riders": "KKR",
+        "srh": "SRH", "sunrisers hyderabad": "SRH",
+        "rr": "RR",  "rajasthan royals": "RR",
+        "dc": "DC",  "delhi capitals": "DC",
+        "pbks": "PBKS", "punjab kings": "PBKS",
+        "lsg": "LSG", "lucknow super giants": "LSG",
+        "gt": "GT",  "gujarat titans": "GT",
+    }
+ 
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+    except Exception as e:
+        logger.warning(f"[STANDINGS] BeautifulSoup parse failed: {e}")
+        return None
+ 
+    # Cricbuzz renders the points table as a series of team rows in a div/table.
+    # Each row has: team name/short, M, W, L, NR, Pts, NRR
+    # The selector targets the points-table section.
+    rows = soup.select("div[class*='cb-srs-pnts'] table tbody tr")
+ 
+    if not rows:
+        # Fallback: try any table on the page
+        tables = soup.find_all("table")
+        logger.info(f"[STANDINGS] Cricbuzz: found {len(tables)} tables on page (fallback path)")
+        if not tables:
+            logger.warning("[STANDINGS] Cricbuzz: no tables found on page")
+            return None
+        # Use pd.read_html as a secondary parse
+        result = _parse_table_from_html(html, season)
+        if result:
+            result["source"] = "cricbuzz"
+        return result
+ 
+    teams = []
+    for row in rows:
+        cells = [td.get_text(strip=True) for td in row.find_all("td")]
+        if len(cells) < 7:
+            continue
+ 
+        # Cricbuzz column order: Team, M, W, L, NR, Pts, NRR
+        raw_name = cells[0]
+        name_lower = raw_name.lower()
+        code = CB_CODE_MAP.get(name_lower)
+ 
+        if not code:
+            # Try partial match
+            for key, val in CB_CODE_MAP.items():
+                if key in name_lower or name_lower in key:
+                    code = val
+                    break
+ 
+        # Clean display name
+        display_name = raw_name
+        for full, c in CB_CODE_MAP.items():
+            if c == code and len(full) > 3:
+                display_name = full.title()
+                break
+ 
+        # Use the IPL_TEAM_NAMES mapping for canonical names
+        canonical = {
+            "RCB": "Royal Challengers Bengaluru", "CSK": "Chennai Super Kings",
+            "MI": "Mumbai Indians", "KKR": "Kolkata Knight Riders",
+            "SRH": "Sunrisers Hyderabad", "RR": "Rajasthan Royals",
+            "DC": "Delhi Capitals", "PBKS": "Punjab Kings",
+            "LSG": "Lucknow Super Giants", "GT": "Gujarat Titans",
+        }
+        team_display = canonical.get(code, display_name) if code else display_name
+ 
+        try:
+            matches  = int(cells[1])
+            won      = int(cells[2])
+            lost     = int(cells[3])
+            nr       = int(cells[4]) if cells[4].isdigit() else 0
+            points   = int(cells[5])
+            nrr      = _safe_float(cells[6])
+        except (ValueError, IndexError):
+            logger.warning(f"[STANDINGS] Cricbuzz: failed to parse row cells: {cells}")
+            continue
+ 
+        teams.append({
+            "team": team_display,
+            "code": code,
+            "matches": matches,
+            "won": won,
+            "lost": lost,
+            "nr": nr,
+            "points": points,
+            "nrr": nrr,
+        })
+ 
+    if not teams:
+        logger.warning("[STANDINGS] Cricbuzz: parsed 0 teams from points table rows")
+        return None
+ 
+    logger.info(f"[STANDINGS] ✅ Cricbuzz points table: parsed {len(teams)} teams")
+    return {
+        "season": season,
+        "source": "cricbuzz",
+        "last_updated_utc": datetime.utcnow().isoformat() + "Z",
+        "teams": teams,
+    }
+ 
 def fetch_espn_points_table(season: int) -> Dict[str, Any]:
     """
-    Scrape the IPL points table from ESPN.
-
-    Tries multiple URL patterns so that at least one page layout returns
-    the table with NRR. The For/Against aggregate columns are captured when
-    available but are not required — their absence only affects live-NRR
-    simulation, not the standings display.
+    Scrape the IPL points table.
+    Priority: ESPN URL 1 → ESPN URL 2 → ESPN URL 3 → Cricbuzz → computed from fixtures
     """
     last_error: Exception = StandingsScrapeError("No URLs tried")
-
+ 
     urls = [
         ESPN_TABLE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season),
         f"https://www.espncricinfo.com/series/ipl-{season}-{IPL_SERIES_ID}/points-table-standings",
         f"https://www.espn.in/cricket/series/_/id/{IPL_SERIES_ID}/seasontype/2/standings",
     ]
-
+ 
     logger.info(f"[STANDINGS] Starting fetch for season={season} at {datetime.utcnow().isoformat()}Z")
-
+ 
     for i, url in enumerate(urls, 1):
         try:
             logger.info(f"[STANDINGS] Trying URL {i}/{len(urls)}: {url}")
@@ -370,6 +492,102 @@ def fetch_espn_points_table(season: int) -> Dict[str, Any]:
             logger.error(f"[STANDINGS] ❌ URL {i} failed — {type(e).__name__}: {str(e)} | URL: {url}")
             last_error = e
             continue
+ 
+    # ── NEW: Cricbuzz fallback ────────────────────────────────────────────────
+    logger.warning("[STANDINGS] All ESPN URLs failed. Trying Cricbuzz points table...")
+    try:
+        cb_result = fetch_cricbuzz_points_table(season)
+        if cb_result and cb_result.get("teams"):
+            logger.info(f"[STANDINGS] ✅ Cricbuzz fallback succeeded — {len(cb_result['teams'])} teams")
+            return cb_result
+        else:
+            logger.warning("[STANDINGS] Cricbuzz fallback returned no teams")
+    except Exception as e:
+        logger.error(f"[STANDINGS] Cricbuzz fallback failed: {e}")
+    # ── END NEW ───────────────────────────────────────────────────────────────
+ 
+    logger.error(f"[STANDINGS] 💀 All sources failed. Falling back to fixture-derived standings.")
+    return compute_standings_from_fixtures(season)
 
-    logger.error(f"[STANDINGS] 💀 All {len(urls)} URLs failed at {datetime.utcnow().isoformat()}Z. Last error: {last_error}")
-    raise StandingsScrapeError(f"All ESPN table URLs failed. Last error: {last_error}") from last_error
+
+def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
+    """Derive points table from fixture data when ESPN scraping fails."""
+    try:
+        fixture_data = fetch_espn_fixtures(season)
+        fixtures = fixture_data.get("fixtures", [])
+    except Exception:
+        fixtures = HARDCODED_IPL_2026_FIXTURES
+
+    teams: Dict[str, Dict[str, Any]] = {}
+
+    TEAM_NAMES = {
+        "RCB": "Royal Challengers Bengaluru", "CSK": "Chennai Super Kings",
+        "MI": "Mumbai Indians", "KKR": "Kolkata Knight Riders",
+        "SRH": "Sunrisers Hyderabad", "RR": "Rajasthan Royals",
+        "DC": "Delhi Capitals", "PBKS": "Punjab Kings",
+        "LSG": "Lucknow Super Giants", "GT": "Gujarat Titans",
+    }
+
+    for code, name in TEAM_NAMES.items():
+        teams[code] = {
+            "team": name, "code": code,
+            "matches": 0, "won": 0, "lost": 0, "nr": 0,
+            "points": 0, "nrr": None,
+        }
+
+    now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+
+    for f in fixtures:
+        t1 = f.get("team1_code")
+        t2 = f.get("team2_code")
+        status = f.get("status")
+
+        if not t1 or not t2:
+            continue
+        if t1 not in teams or t2 not in teams:
+            continue
+
+        # Only count matches that have actually been played
+        try:
+            dt = datetime.fromisoformat(f["date"])
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            else:
+                dt = dt.astimezone(timezone.utc)
+            if dt > now_utc:
+                continue
+        except Exception:
+            if status == "upcoming":
+                continue
+
+        if status == "no_result":
+            teams[t1]["matches"] += 1
+            teams[t2]["matches"] += 1
+            teams[t1]["points"] += 1
+            teams[t2]["points"] += 1
+            teams[t1]["nr"] += 1
+            teams[t2]["nr"] += 1
+
+        elif status in ("completed", "live"):
+            winner = f.get("winner_code")
+            if not winner:
+                continue
+            loser = t2 if winner == t1 else t1
+            teams[winner]["matches"] += 1
+            teams[loser]["matches"] += 1
+            teams[winner]["won"] += 1
+            teams[loser]["lost"] += 1
+            teams[winner]["points"] += 2
+
+    sorted_teams = sorted(
+        teams.values(),
+        key=lambda x: (x["points"], x["nrr"] or 0),
+        reverse=True,
+    )
+
+    return {
+        "season": season,
+        "source": "computed_from_fixtures",
+        "last_updated_utc": datetime.utcnow().isoformat() + "Z",
+        "teams": sorted_teams,
+    }
