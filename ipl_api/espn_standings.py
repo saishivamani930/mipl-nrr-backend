@@ -515,13 +515,13 @@ def fetch_espn_points_table(season: int) -> Dict[str, Any]:
 
 def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
     """Derive points table from fixture data when ESPN scraping fails."""
+    from ipl_api.cricbuzz_fixtures import fetch_cricbuzz_innings_aggregates
+
     try:
         fixture_data = fetch_espn_fixtures(season)
         fixtures = fixture_data.get("fixtures", [])
     except Exception:
         fixtures = HARDCODED_IPL_2026_FIXTURES
-
-    teams: Dict[str, Dict[str, Any]] = {}
 
     TEAM_NAMES = {
         "RCB": "Royal Challengers Bengaluru", "CSK": "Chennai Super Kings",
@@ -531,26 +531,56 @@ def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
         "LSG": "Lucknow Super Giants", "GT": "Gujarat Titans",
     }
 
+    teams: Dict[str, Dict[str, Any]] = {}
     for code, name in TEAM_NAMES.items():
         teams[code] = {
             "team": name, "code": code,
             "matches": 0, "won": 0, "lost": 0, "nr": 0,
             "points": 0, "nrr": None,
+            "runs_for": 0, "balls_for": 0,
+            "runs_against": 0, "balls_against": 0,
         }
 
     now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
 
+    # Collect completed pairs for innings fetch
+    completed_pairs = []
+    for f in fixtures:
+        t1, t2, status = f.get("team1_code"), f.get("team2_code"), f.get("status")
+        if not t1 or not t2 or t1 not in teams or t2 not in teams:
+            continue
+        try:
+            dt = datetime.fromisoformat(f["date"])
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            else:
+                dt = dt.astimezone(timezone.utc)
+            if dt > now_utc:
+                continue
+        except Exception:
+            if status == "upcoming":
+                continue
+        if status in ("completed", "live"):
+            date_only = f["date"][:10]
+            completed_pairs.append(f"{t1}-{t2}-{date_only}")
+
+    # Fetch innings aggregates from Cricbuzz scorecards
+    innings_map: Dict[str, Any] = {}
+    try:
+        innings_map = fetch_cricbuzz_innings_aggregates(completed_pairs)
+        logger.info(f"[STANDINGS] Innings aggregates fetched for {len(innings_map)//2} matches")
+    except Exception as e:
+        logger.warning(f"[STANDINGS] Innings fetch failed (non-fatal): {e}")
+
+    # Build standings
     for f in fixtures:
         t1 = f.get("team1_code")
         t2 = f.get("team2_code")
         status = f.get("status")
 
-        if not t1 or not t2:
-            continue
-        if t1 not in teams or t2 not in teams:
+        if not t1 or not t2 or t1 not in teams or t2 not in teams:
             continue
 
-        # Only count matches that have actually been played
         try:
             dt = datetime.fromisoformat(f["date"])
             if dt.tzinfo is None:
@@ -575,6 +605,7 @@ def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
             winner = f.get("winner_code")
             if not winner:
                 continue
+
             loser = t2 if winner == t1 else t1
             teams[winner]["matches"] += 1
             teams[loser]["matches"] += 1
@@ -582,9 +613,24 @@ def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
             teams[loser]["lost"] += 1
             teams[winner]["points"] += 2
 
+            # Add innings aggregates if available
+            pair_key = f"{t1}-{t2}"
+            innings = innings_map.get(pair_key)
+            if innings:
+                # t1 batted first (innings order from scorecard)
+                teams[t1]["runs_for"]      += innings["team1_runs"]
+                teams[t1]["balls_for"]     += innings["team1_balls"]
+                teams[t1]["runs_against"]  += innings["team2_runs"]
+                teams[t1]["balls_against"] += innings["team2_balls"]
+
+                teams[t2]["runs_for"]      += innings["team2_runs"]
+                teams[t2]["balls_for"]     += innings["team2_balls"]
+                teams[t2]["runs_against"]  += innings["team1_runs"]
+                teams[t2]["balls_against"] += innings["team1_balls"]
+
     sorted_teams = sorted(
         teams.values(),
-        key=lambda x: (x["points"], x["nrr"] or 0),
+        key=lambda x: (x["points"], x.get("runs_for", 0)),
         reverse=True,
     )
 
