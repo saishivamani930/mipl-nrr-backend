@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 from ipl_api.cache import get as cache_get, set as cache_set
 from ipl_api.cricketdata_client import get_json, CricketDataError
 
+from dataclasses import asdict
+
 from ipl_api.config import (
     validate_config,
     STANDINGS_CACHE_TTL_SECONDS,
@@ -38,6 +40,7 @@ from ipl_api.thresholds import (
     chase_loss_min_score,
     defend_win_max_opp_score,
     chase_win_max_balls,
+    defend_loss_max_balls,
 )
 
 import sys
@@ -776,17 +779,34 @@ def api_chase_win_max_balls(req: ThresholdChaseWinBallsRequest):
     )
     return {"season": req.season, "input": req.model_dump(), "result": out}
 
+class ThresholdDefendLossBallsRequest(BaseModel):
+    season: int = Field(DEFAULT_SEASON)
+    source: Literal["live"] = Field("live")
+    defending_team: str
+    opponent_team: str
+    target_team: str
+    defending_score: int = Field(..., ge=0)
+
+
 @app.post("/api/thresholds/defend-loss/max-balls")
-async def threshold_defend_loss_max_balls(body: dict, source: str = "live", season: int = 2026):
-    state = get_base_state(source, season)
-    result = defend_loss_max_balls(
+def api_defend_loss_max_balls(req: ThresholdDefendLossBallsRequest):
+    state = _load_live_state(req.season)
+    try:
+        defending = resolve_team_code(req.defending_team, state)
+        opp = resolve_team_code(req.opponent_team, state)
+        target = resolve_team_code(req.target_team, state)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+ 
+    out = defend_loss_max_balls(
         base_state=state,
-        defending_team=body["defending_team"],
-        opponent_team=body["opponent_team"],
-        target_team=body["target_team"],
-        defending_score=int(body["defending_score"]),
+        defending_team=defending,
+        opponent_team=opp,
+        target_team=target,
+        defending_score=req.defending_score,
     )
-    return {"result": asdict(result)}
+    
+    return {"season": req.season, "input": req.model_dump(), "result": asdict(out)}
 
 @app.get("/api/debug/cache")
 def debug_cache():
