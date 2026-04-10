@@ -625,16 +625,16 @@ def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
             # Add innings aggregates if available
             pair_key = f"{t1}-{t2}"
             innings = innings_map.get(pair_key)
-            if innings:
-                teams[t1]["runs_for"]      += innings["team1_runs"]
-                teams[t1]["balls_for"]     += innings["team1_balls"]
-                teams[t1]["runs_against"]  += innings["team2_runs"]
-                teams[t1]["balls_against"] += innings["team2_balls"]
+            if innings and t1 in innings and t2 in innings:
+                teams[t1]["runs_for"]      += innings[t1]["runs"]
+                teams[t1]["balls_for"]     += innings[t1]["balls"]
+                teams[t1]["runs_against"]  += innings[t2]["runs"]
+                teams[t1]["balls_against"] += innings[t2]["balls"]
 
-                teams[t2]["runs_for"]      += innings["team2_runs"]
-                teams[t2]["balls_for"]     += innings["team2_balls"]
-                teams[t2]["runs_against"]  += innings["team1_runs"]
-                teams[t2]["balls_against"] += innings["team1_balls"]
+                teams[t2]["runs_for"]      += innings[t2]["runs"]
+                teams[t2]["balls_for"]     += innings[t2]["balls"]
+                teams[t2]["runs_against"]  += innings[t1]["runs"]
+                teams[t2]["balls_against"] += innings[t1]["balls"]
 
     # ── Calculate NRR from aggregates ──────────────────────────────────────
     for t in teams.values():

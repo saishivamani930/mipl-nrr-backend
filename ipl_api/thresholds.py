@@ -11,6 +11,7 @@ Mode = Literal[
     "CHASE_LOSS_MIN_SCORE",     # (1) chasing + losing: min score to stay above competitor
     "DEFEND_WIN_MAX_OPP_SCORE", # (2) defending + winning: max opponent score allowed
     "CHASE_WIN_MAX_BALLS",      # (3) chasing + winning: max balls to stay above competitor
+    "DEFEND_LOSS_MAX_BALLS",
 ]
 
 MAX_BALLS_T20 = 120
@@ -304,6 +305,80 @@ def chase_win_max_balls(
         opponent=opponent,
         competitor=competitor,
         reason="Maximum balls allowed while chasing and winning to stay above competitor.",
+        value=best,
+        details={"overs_str": _balls_to_overs_str(best) if best else None},
+    )
+def defend_loss_max_balls(
+    *,
+    base_state: Dict[str, TeamRow],
+    defending_team: str,
+    opponent_team: str,
+    target_team: str,
+    defending_score: int,
+) -> ThresholdResult:
+    """
+    (4) Defending team set defending_score but LOSES (opponent chases it down).
+    Opponent bats first (chases), scores defending_score+1.
+    Find maximum balls the opponent can take to chase it, such that
+    defending_team still stays above target_team on NRR.
+    i.e. we want the opponent to take as MANY balls as possible (slow chase = less NRR damage to us).
+    """
+    focus = defending_team.strip().upper()
+    opponent = opponent_team.strip().upper()
+    competitor = target_team.strip().upper()
+
+    if defending_score <= 0:
+        return ThresholdResult(False, "DEFEND_LOSS_MAX_BALLS", focus, opponent, competitor, "defending_score must be > 0")
+
+    for t in (focus, opponent, competitor):
+        if t not in base_state:
+            return ThresholdResult(False, "DEFEND_LOSS_MAX_BALLS", focus, opponent, competitor, f"Unknown team: {t}")
+
+    lo, hi = 1, MAX_BALLS_T20
+    best: Optional[int] = None
+
+    def check(balls: int) -> bool:
+        st = _clone_state(base_state)
+        table = simulate_match(
+            state=st,
+            team1=focus,             # bats first, sets target
+            team2=opponent,          # chases and wins
+            team1_runs=defending_score,
+            team1_overs="20.0",
+            team2_runs=defending_score + 1,   # opponent wins
+            team2_overs=_balls_to_overs_str(balls),
+            team1_all_out=False,
+            team2_all_out=False,
+        )
+        return _is_above(table, focus, competitor)
+
+    # If even opponent taking all 120 balls still drops us below -> impossible
+    if not check(MAX_BALLS_T20):
+        return ThresholdResult(
+            ok=False,
+            mode="DEFEND_LOSS_MAX_BALLS",
+            focus=focus,
+            opponent=opponent,
+            competitor=competitor,
+            reason="Even if opponent takes all 20 overs to chase, focus still drops below competitor.",
+            value=None,
+        )
+
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if check(mid):
+            best = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+
+    return ThresholdResult(
+        ok=True,
+        mode="DEFEND_LOSS_MAX_BALLS",
+        focus=focus,
+        opponent=opponent,
+        competitor=competitor,
+        reason="Maximum balls opponent can take while chasing (losing scenario) so focus stays above competitor.",
         value=best,
         details={"overs_str": _balls_to_overs_str(best) if best else None},
     )

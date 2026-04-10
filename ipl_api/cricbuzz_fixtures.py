@@ -231,14 +231,6 @@ def _fetch_scorecard_result(match_id: int) -> Optional[Dict[str, Any]]:
     return None
 
 def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
-    """
-    Fetch innings scores (runs, balls) for a completed match from its Cricbuzz scorecard.
-    Returns dict with keys: team1_runs, team1_balls, team2_runs, team2_balls
-    or None if parsing fails.
-    
-    Cricbuzz scorecard page has innings score in pattern like:
-    "187/4 (20 Ov)" or "203/10 (18.3 Ov)"
-    """
     url = f"https://www.cricbuzz.com/live-cricket-scores/{match_id}/"
     try:
         r = requests.get(url, headers=_get_headers(), timeout=20)
@@ -248,38 +240,40 @@ def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
         print(f"[CB] Innings fetch failed for {match_id}: {e}", file=sys.stderr)
         return None
 
-    # Pattern matches scores like "187/4 (20 Ov)" or "203 (18.3 Ov)"
-    # Cricbuzz renders: <span>187/4</span> ... <span>(20 Ov)</span>
-    # We grab all "runs/wickets (overs Ov)" patterns from the page
-    score_pattern = re.findall(
-        r'(\d{2,3})(?:/\d{1,2})?\s*\((\d{1,2}(?:\.\d)?)\s*Ov\)',
-        html
+    pattern = re.compile(
+        r'<div class="mr-2">([A-Z]{2,5})</div>\s*'
+        r'<div>(\d{2,3})'
+        r'(?:<span>/\d{1,2}</span>)?'
+        r'<span[^>]*>\((\d{1,2}(?:\.\d)?)\)</span>',
+        re.DOTALL
     )
 
-    if len(score_pattern) < 2:
-        print(f"[CB] Could not parse 2 innings from match {match_id}, found: {score_pattern}", file=sys.stderr)
+    matches = pattern.findall(html)
+    if len(matches) < 2:
+        print(f"[CB] Could not parse 2 innings with team names for {match_id}, found: {matches}", file=sys.stderr)
         return None
 
-    def overs_str_to_balls(overs_str: str) -> int:
-        """Convert '20' or '18.3' to balls."""
+    def overs_to_balls(overs_str: str) -> int:
         if '.' in overs_str:
             full, partial = overs_str.split('.')
             return int(full) * 6 + int(partial)
         return int(overs_str) * 6
 
-    try:
-        t1_runs = int(score_pattern[0][0])
-        t1_balls = overs_str_to_balls(score_pattern[0][1])
-        t2_runs = int(score_pattern[1][0])
-        t2_balls = overs_str_to_balls(score_pattern[1][1])
-        print(f"[CB] Match {match_id} innings: {t1_runs}/{t1_balls}b vs {t2_runs}/{t2_balls}b", file=sys.stderr)
-        return {
-            "team1_runs": t1_runs, "team1_balls": t1_balls,
-            "team2_runs": t2_runs, "team2_balls": t2_balls,
-        }
-    except Exception as e:
-        print(f"[CB] Innings parse error for {match_id}: {e}", file=sys.stderr)
+    result = {}
+    for short_name, runs_str, overs_str in matches[:2]:
+        code = _short_to_code(short_name)
+        if not code:
+            print(f"[CB] Unknown team short name '{short_name}' in innings for {match_id}", file=sys.stderr)
+            continue
+        result[code] = {"runs": int(runs_str), "balls": overs_to_balls(overs_str)}
+
+    if len(result) < 2:
+        print(f"[CB] Could not map both teams for innings {match_id}: {result}", file=sys.stderr)
         return None
+
+    codes = list(result.keys())
+    print(f"[CB] Match {match_id} innings: {codes[0]} {result[codes[0]]} vs {codes[1]} {result[codes[1]]}", file=sys.stderr)
+    return result  # e.g. {"SRH": {"runs": 201, "balls": 120}, "RCB": {"runs": 203, "balls": 94}}
 
 def _parse_winner_from_result(result_text: str) -> Optional[str]:
     """Extract winner code from result string like 'Royal Challengers Bengaluru won by 6 wkts'."""
@@ -369,9 +363,8 @@ def fetch_cricbuzz_innings_aggregates(
 ) -> Dict[str, Dict[str, Any]]:
     """
     For each completed match pair, fetch innings scores from Cricbuzz scorecards.
-    Returns dict keyed by "T1-T2" with innings data:
-      { "team1_runs": int, "team1_balls": int, "team2_runs": int, "team2_balls": int,
-        "team1_code": str, "team2_code": str }
+    Returns dict keyed by "T1-T2" (and "T2-T1") with innings data:
+      { "SRH": {"runs": int, "balls": int}, "RCB": {"runs": int, "balls": int} }
     """
     match_id_map = _fetch_all_match_ids()
     aggregates: Dict[str, Dict[str, Any]] = {}
@@ -410,8 +403,6 @@ def fetch_cricbuzz_innings_aggregates(
         fetched.add(f"{t2}-{t1}")
 
         if innings:
-            innings["team1_code"] = t1
-            innings["team2_code"] = t2
             aggregates[canonical] = innings
             aggregates[f"{t2}-{t1}"] = innings
 

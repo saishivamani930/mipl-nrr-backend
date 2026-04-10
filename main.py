@@ -776,6 +776,18 @@ def api_chase_win_max_balls(req: ThresholdChaseWinBallsRequest):
     )
     return {"season": req.season, "input": req.model_dump(), "result": out}
 
+@app.post("/api/thresholds/defend-loss/max-balls")
+async def threshold_defend_loss_max_balls(body: dict, source: str = "live", season: int = 2026):
+    state = get_base_state(source, season)
+    result = defend_loss_max_balls(
+        base_state=state,
+        defending_team=body["defending_team"],
+        opponent_team=body["opponent_team"],
+        target_team=body["target_team"],
+        defending_score=int(body["defending_score"]),
+    )
+    return {"result": asdict(result)}
+
 @app.get("/api/debug/cache")
 def debug_cache():
     from ipl_api.cache import debug_snapshot
