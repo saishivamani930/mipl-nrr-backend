@@ -261,6 +261,7 @@ def chase_win_max_balls(
 
     
     best: Optional[int] = None
+
     def check(balls: int) -> bool:
         st = _clone_state(base_state)
         table = simulate_match(
@@ -276,7 +277,6 @@ def chase_win_max_balls(
         )
         return _is_above(table, focus, competitor)
 
-    # If even opponent taking all 120 balls still drops us below -> impossible
     if not check(MAX_BALLS_T20):
         return ThresholdResult(
             ok=False,
@@ -288,18 +288,16 @@ def chase_win_max_balls(
             value=None,
         )
 
-    # If even a 1-ball chase keeps us above -> no constraint
     if check(1):
         best = 1
     else:
-        # Find MINIMUM balls opponent must take for focus to stay above rival
         lo, hi = 1, MAX_BALLS_T20
         best = MAX_BALLS_T20
         while lo <= hi:
             mid = (lo + hi) // 2
             if check(mid):
                 best = mid
-                hi = mid - 1  # try fewer balls
+                hi = mid - 1
             else:
                 lo = mid + 1
 
