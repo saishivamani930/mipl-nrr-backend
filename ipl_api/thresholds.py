@@ -371,9 +371,10 @@ def defend_loss_max_balls(
         mid = (lo + hi) // 2
         if check(mid):
             best = mid
-            lo = mid + 1
-        else:
             hi = mid - 1
+            
+        else:
+            lo = mid + 1
 
     return ThresholdResult(
         ok=True,
