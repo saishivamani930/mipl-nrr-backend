@@ -259,44 +259,49 @@ def chase_win_max_balls(
         if t not in base_state:
             return ThresholdResult(False, "CHASE_WIN_MAX_BALLS", focus, opponent, competitor, f"Unknown team: {t}")
 
-    lo, hi = 1, MAX_BALLS_T20
+    
     best: Optional[int] = None
-
     def check(balls: int) -> bool:
         st = _clone_state(base_state)
-        focus_runs = target_score + 1  # must win
         table = simulate_match(
             state=st,
-            team1=opponent,         # bats first
-            team2=focus,            # chases and wins
-            team1_runs=target_score,
+            team1=focus,
+            team2=opponent,
+            team1_runs=defending_score,
             team1_overs="20.0",
-            team2_runs=focus_runs,
+            team2_runs=defending_score + 1,
             team2_overs=_balls_to_overs_str(balls),
             team1_all_out=False,
             team2_all_out=False,
         )
         return _is_above(table, focus, competitor)
 
-    # If even winning in 1 ball doesn't get above -> impossible
-    if not check(1):
+    # If even opponent taking all 120 balls still drops us below -> impossible
+    if not check(MAX_BALLS_T20):
         return ThresholdResult(
             ok=False,
-            mode="CHASE_WIN_MAX_BALLS",
+            mode="DEFEND_LOSS_MAX_BALLS",
             focus=focus,
             opponent=opponent,
             competitor=competitor,
-            reason="Even winning very fast does not keep focus above competitor.",
+            reason="Even if opponent takes all 20 overs to chase, focus still drops below competitor.",
             value=None,
         )
 
-    while lo <= hi:
-        mid = (lo + hi) // 2
-        if check(mid):
-            best = mid
-            lo = mid + 1
-        else:
-            hi = mid - 1
+    # If even a 1-ball chase keeps us above -> no constraint
+    if check(1):
+        best = 1
+    else:
+        # Find MINIMUM balls opponent must take for focus to stay above rival
+        lo, hi = 1, MAX_BALLS_T20
+        best = MAX_BALLS_T20
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if check(mid):
+                best = mid
+                hi = mid - 1  # try fewer balls
+            else:
+                lo = mid + 1
 
     return ThresholdResult(
         ok=True,
