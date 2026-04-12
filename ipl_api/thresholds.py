@@ -233,7 +233,6 @@ def defend_win_max_opp_score(
         details={"assume_opp_balls": assume_opp_balls, "assume_opp_overs": opp_overs},
     )
 
-
 def chase_win_max_balls(
     *,
     base_state: Dict[str, TeamRow],
@@ -242,12 +241,6 @@ def chase_win_max_balls(
     target_team: str,
     target_score: int,
 ) -> ThresholdResult:
-    """
-    (3) Chasing team wins chase of target_score.
-    Opponent bats full 20 overs and makes target_score.
-    Chasing team scores target_score+1 and wins.
-    Find maximum balls chasing team can take and STILL stay above target_team.
-    """
     focus = chasing_team.strip().upper()
     opponent = opponent_team.strip().upper()
     competitor = target_team.strip().upper()
@@ -259,12 +252,12 @@ def chase_win_max_balls(
         if t not in base_state:
             return ThresholdResult(False, "CHASE_WIN_MAX_BALLS", focus, opponent, competitor, f"Unknown team: {t}")
 
-    
+    lo, hi = 1, MAX_BALLS_T20
     best: Optional[int] = None
 
     def check(balls: int) -> bool:
         st = _clone_state(base_state)
-        focus_runs = target_score + 1  # must win
+        focus_runs = target_score + 1
         table = simulate_match(
             state=st,
             team1=opponent,
@@ -278,29 +271,24 @@ def chase_win_max_balls(
         )
         return _is_above(table, focus, competitor)
 
-    if not check(MAX_BALLS_T20):
+    if not check(1):
         return ThresholdResult(
             ok=False,
-            mode="DEFEND_LOSS_MAX_BALLS",
+            mode="CHASE_WIN_MAX_BALLS",
             focus=focus,
             opponent=opponent,
             competitor=competitor,
-            reason="Even if opponent takes all 20 overs to chase, focus still drops below competitor.",
+            reason="Even winning very fast does not keep focus above competitor.",
             value=None,
         )
 
-    if check(1):
-        best = 1
-    else:
-        lo, hi = 1, MAX_BALLS_T20
-        best = MAX_BALLS_T20
-        while lo <= hi:
-            mid = (lo + hi) // 2
-            if check(mid):
-                best = mid
-                hi = mid - 1
-            else:
-                lo = mid + 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if check(mid):
+            best = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
 
     return ThresholdResult(
         ok=True,
@@ -312,6 +300,7 @@ def chase_win_max_balls(
         value=best,
         details={"overs_str": _balls_to_overs_str(best) if best else None},
     )
+
 def defend_loss_max_balls(
     *,
     base_state: Dict[str, TeamRow],
@@ -368,14 +357,18 @@ def defend_loss_max_balls(
             value=None,
         )
 
-    while lo <= hi:
-        mid = (lo + hi) // 2
-        if check(mid):
-            best = mid
-            hi = mid - 1
-            
-        else:
-            lo = mid + 1
+    if check(1):
+        best = MAX_BALLS_T20 
+    else:
+        lo, hi = 1, MAX_BALLS_T20
+        best = MAX_BALLS_T20
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if check(mid):
+                best = mid
+                hi = mid - 1
+            else:
+                lo = mid + 1
 
     return ThresholdResult(
         ok=True,
