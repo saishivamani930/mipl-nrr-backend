@@ -264,13 +264,14 @@ def chase_win_max_balls(
 
     def check(balls: int) -> bool:
         st = _clone_state(base_state)
+        focus_runs = target_score + 1  # must win
         table = simulate_match(
             state=st,
-            team1=focus,
-            team2=opponent,
-            team1_runs=defending_score,
+            team1=opponent,
+            team2=focus,
+            team1_runs=target_score,
             team1_overs="20.0",
-            team2_runs=defending_score + 1,
+            team2_runs=focus_runs,
             team2_overs=_balls_to_overs_str(balls),
             team1_all_out=False,
             team2_all_out=False,
