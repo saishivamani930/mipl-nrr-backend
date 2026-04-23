@@ -466,6 +466,7 @@ def fetch_cricbuzz_innings_aggregates(
       { "SRH": {"runs": int, "balls": int}, "RCB": {"runs": int, "balls": int} }
     """
     match_id_map = _fetch_all_match_ids()
+    _debug_dump_html(149695)  # TEMP - remove after
     aggregates: Dict[str, Dict[str, Any]] = {}
     fetched: set = set()
 
@@ -517,6 +518,16 @@ _USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
 ]
 
+def _debug_dump_html(match_id: int):
+    r = requests.get(
+        f"https://www.cricbuzz.com/live-cricket-scores/{match_id}/",
+        headers=_get_headers(),
+        timeout=20
+    )
+    html = r.text
+    print(f"[CB DEBUG] HTML length: {len(html)}", file=sys.stderr)
+    for i, start in enumerate([0, 3000, 6000, 10000, 15000]):
+        print(f"[CB DEBUG chunk {i}]:\n{html[start:start+1500]}\n---", file=sys.stderr)
 
 def _get_headers() -> Dict[str, str]:
     return {
