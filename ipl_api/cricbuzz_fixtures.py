@@ -266,7 +266,7 @@ def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
     # ----------------------------------------------------------------
 
     # Extract all meta content values and the title — these reliably carry scores
-    meta_contents = re.findall(r'content="([^"]{20,400})"', html)
+    meta_contents = re.findall(r'content="([^"]{20,400})"', html, re.DOTALL)
     title_match = re.search(r'<title>([^<]+)</title>', html)
     if title_match:
         meta_contents.append(title_match.group(1))
