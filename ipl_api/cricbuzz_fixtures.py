@@ -227,16 +227,6 @@ def _fetch_scorecard_result(match_id: int) -> Optional[Dict[str, Any]]:
 
 
 def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
-    """
-    Fetch innings scores for a completed match.
-
-    The scores appear in the page <meta> description tag in this exact format:
-        DC 164/4 (18.1) vs MI\\n                162/6
-    or in <title> / twitter:title as:
-        DC 164/4 (18.1) vs MI 162/6
-
-    We parse both and pick the first clean hit.
-    """
     url = f"https://www.cricbuzz.com/live-cricket-scores/{match_id}/"
     try:
         r = requests.get(url, headers=_get_headers(), timeout=20)
@@ -253,137 +243,52 @@ def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
             return int(full) * 6 + int(partial)
         return int(s) * 6
 
-    # ----------------------------------------------------------------
-    # Strategy 1: Parse from meta description / twitter:title tags.
-    #
-    # The debug output confirmed this exact format in chunk 0 + 1:
-    #   "DC 164/4 (18.1) vs MI\n                162/6"
-    # and in twitter:title:
-    #   "DC 164/4 (18.1) vs MI\n                162/6"
-    #
-    # Pattern: TEAM RUNS/WKTS (OVERS) vs TEAM RUNS/WKTS
-    # The second innings overs may or may not be present in meta tags.
-    # ----------------------------------------------------------------
-
-    # Extract all meta content values and the title — these reliably carry scores
-    meta_contents = re.findall(r'content="([^"]{20,400})"', html, re.DOTALL)
-    title_match = re.search(r'<title>([^<]+)</title>', html)
+    # Pull all meta content values (multiline safe) + title
+    meta_contents = re.findall(r'content="(.*?)"', html, re.DOTALL)
+    title_match = re.search(r'<title>(.*?)</title>', html, re.DOTALL)
     if title_match:
         meta_contents.append(title_match.group(1))
 
-    # Pattern for a score block: TEAM RUNS/WKTS (OVERS)
-    # e.g. "DC 164/4 (18.1)" or "MI 162/6 (20)"
-    score_block = re.compile(
-        r'\b([A-Z]{2,5})\s+(\d{2,3})/(\d{1,2})\s*\(([\d.]+)\)',
-    )
+    # Score WITH overs: "DC 164/4 (18.1)"
+    with_overs = re.compile(r'\b([A-Z]{2,5})\s+(\d{2,3})/(\d{1,2})\s*\(([\d.]+)\)')
+    # Score WITHOUT overs: "MI 162/6" — only as fallback
+    without_overs = re.compile(r'\b([A-Z]{2,5})\s+(\d{2,3})/(\d{1,2})')
 
     for content in meta_contents:
-        # Normalise whitespace (newlines + spaces in meta values)
         content_clean = re.sub(r'\s+', ' ', content)
-        found = score_block.findall(content_clean)
-        # Filter to known IPL team codes only
-        valid = [(s, r, w, o) for s, r, w, o in found if _short_to_code(s)]
-        if len(valid) >= 2:
-            result = {}
-            for short, runs_str, wkts_str, overs_str in valid[:2]:
-                code = _short_to_code(short)
-                if code and code not in result:
-                    result[code] = {
-                        "runs": int(runs_str),
-                        "balls": overs_to_balls(overs_str),
-                    }
-            if len(result) == 2:
-                codes = list(result.keys())
-                print(
-                    f"[CB] Match {match_id} innings (meta): "
-                    f"{codes[0]} {result[codes[0]]} vs {codes[1]} {result[codes[1]]}",
-                    file=sys.stderr,
-                )
-                return result
 
-    # ----------------------------------------------------------------
-    # Strategy 2: The second innings overs may be missing from meta
-    # (e.g. "MI\n162/6" with no overs shown while match was live).
-    # In that case, fall back to scanning the full HTML for score lines
-    # like "DC<!-- --> 164/4<!-- --> (18.1" that React renders as
-    # HTML comments between text nodes.
-    # ----------------------------------------------------------------
-    react_score = re.compile(
-        r'\b([A-Z]{2,5})(?:<!-- -->)?\s+(\d{2,3})/(\d{1,2})(?:<!-- -->)?\s*\(([\d.]+)',
-    )
-    found2 = react_score.findall(html)
-    valid2 = [(s, r, w, o) for s, r, w, o in found2 if _short_to_code(s)]
-    if len(valid2) >= 2:
+        # Must find at least one score with overs (that's innings 1)
+        hits_with = [(s, r, w, o) for s, r, w, o in with_overs.findall(content_clean) if _short_to_code(s)]
+        if not hits_with:
+            continue
+
         result = {}
-        for short, runs_str, wkts_str, overs_str in valid2[:2]:
+        for short, runs_str, wkts_str, overs_str in hits_with:
             code = _short_to_code(short)
             if code and code not in result:
-                result[code] = {
-                    "runs": int(runs_str),
-                    "balls": overs_to_balls(overs_str),
-                }
+                result[code] = {"runs": int(runs_str), "balls": overs_to_balls(overs_str)}
+
+        # If we only got one innings, look for the second without overs
+        if len(result) == 1:
+            # Search full HTML for "MI 162/6 (19.2)" style — appears in scorecard body
+            full_html_clean = re.sub(r'\s+', ' ', html)
+            for short, runs_str, wkts_str, overs_str in with_overs.findall(full_html_clean):
+                code = _short_to_code(short)
+                if code and code not in result:
+                    result[code] = {"runs": int(runs_str), "balls": overs_to_balls(overs_str)}
+                    break
+
         if len(result) == 2:
             codes = list(result.keys())
             print(
-                f"[CB] Match {match_id} innings (react): "
+                f"[CB] Match {match_id} innings (meta): "
                 f"{codes[0]} {result[codes[0]]} vs {codes[1]} {result[codes[1]]}",
                 file=sys.stderr,
             )
             return result
 
-    # ----------------------------------------------------------------
-    # Strategy 3: __next_f JSON fragments — look for inningsScore array
-    # ----------------------------------------------------------------
-    fragments = re.findall(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)', html, re.DOTALL)
-    search_targets = [html]
-    for frag in fragments:
-        try:
-            search_targets.append(frag.encode().decode("unicode_escape"))
-        except Exception:
-            search_targets.append(frag)
-
-    innings_array_pattern = re.compile(r'"inningsScore"\s*:\s*(\[[^\]]+\])', re.DOTALL)
-    for target in search_targets:
-        for m in innings_array_pattern.finditer(target):
-            try:
-                # Try to parse individual innings objects from the array
-                obj_strs = re.findall(r'\{[^{}]+\}', m.group(1))
-                result = {}
-                for obj_str in obj_strs:
-                    try:
-                        obj = json.loads(obj_str)
-                    except Exception:
-                        # Manual field extraction fallback
-                        t = re.search(r'"(?:batTeamName|shortName|teamSName)"\s*:\s*"([^"]+)"', obj_str)
-                        r_val = re.search(r'"runs"\s*:\s*(\d+)', obj_str)
-                        o_val = re.search(r'"overs"\s*:\s*([\d.]+)', obj_str)
-                        if not (t and r_val and o_val):
-                            continue
-                        obj = {"batTeamName": t.group(1), "runs": int(r_val.group(1)), "overs": o_val.group(1)}
-
-                    team_name = obj.get("batTeamName") or obj.get("shortName") or obj.get("teamSName", "")
-                    runs_val = obj.get("runs")
-                    overs_val = obj.get("overs")
-                    if not team_name or runs_val is None or overs_val is None:
-                        continue
-                    code = _short_to_code(team_name) or _name_to_code(team_name)
-                    if code and code not in result:
-                        result[code] = {"runs": int(runs_val), "balls": overs_to_balls(overs_val)}
-
-                if len(result) == 2:
-                    codes = list(result.keys())
-                    print(
-                        f"[CB] Match {match_id} innings (JSON): "
-                        f"{codes[0]} {result[codes[0]]} vs {codes[1]} {result[codes[1]]}",
-                        file=sys.stderr,
-                    )
-                    return result
-            except Exception:
-                continue
-
     print(f"[CB] Could not parse innings for {match_id}", file=sys.stderr)
     return None
-
 
 def _parse_winner_from_result(result_text: str) -> Optional[str]:
     """Extract winner code from result string like 'Royal Challengers Bengaluru won by 6 wkts'."""
