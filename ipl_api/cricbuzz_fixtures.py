@@ -225,7 +225,6 @@ def _fetch_scorecard_result(match_id: int) -> Optional[Dict[str, Any]]:
     print(f"[CB] Could not parse result for match {match_id}", file=sys.stderr)
     return None
 
-
 def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
     url = f"https://www.cricbuzz.com/live-cricket-scores/{match_id}/"
     try:
@@ -243,52 +242,32 @@ def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
             return int(full) * 6 + int(partial)
         return int(s) * 6
 
-    # Pull all meta content values (multiline safe) + title
-    meta_contents = re.findall(r'content="(.*?)"', html, re.DOTALL)
-    title_match = re.search(r'<title>(.*?)</title>', html, re.DOTALL)
-    if title_match:
-        meta_contents.append(title_match.group(1))
+    full_html = re.sub(r"\s+", " ", html)
 
-    # Score WITH overs: "DC 164/4 (18.1)"
-    with_overs = re.compile(r'\b([A-Z]{2,5})\s+(\d{2,3})/(\d{1,2})\s*\(([\d.]+)\)')
-    # Score WITHOUT overs: "MI 162/6" — only as fallback
-    without_overs = re.compile(r'\b([A-Z]{2,5})\s+(\d{2,3})/(\d{1,2})')
+    # Match things like: DC 164/4 (18.1)
+    pattern = re.compile(r'\b(RCB|CSK|MI|KKR|SRH|RR|DC|PBKS|LSG|GT)\s+(\d{1,3})/(\d{1,2})\s*\((\d+(?:\.\d)?)\)')
 
-    for content in meta_contents:
-        content_clean = re.sub(r'\s+', ' ', content)
+    found = []
+    seen = set()
 
-        # Must find at least one score with overs (that's innings 1)
-        hits_with = [(s, r, w, o) for s, r, w, o in with_overs.findall(content_clean) if _short_to_code(s)]
-        if not hits_with:
-            continue
+    for short, runs, wkts, overs in pattern.findall(full_html):
+        if short not in seen:
+            seen.add(short)
+            found.append((short, int(runs), overs_to_balls(overs)))
+        if len(found) == 2:
+            break
 
-        result = {}
-        for short, runs_str, wkts_str, overs_str in hits_with:
-            code = _short_to_code(short)
-            if code and code not in result:
-                result[code] = {"runs": int(runs_str), "balls": overs_to_balls(overs_str)}
+    if len(found) < 2:
+        print(f"[CB] Could not parse innings for {match_id}", file=sys.stderr)
+        return None
 
-        # If we only got one innings, look for the second without overs
-        if len(result) == 1:
-            # Search full HTML for "MI 162/6 (19.2)" style — appears in scorecard body
-            full_html_clean = re.sub(r'\s+', ' ', html)
-            for short, runs_str, wkts_str, overs_str in with_overs.findall(full_html_clean):
-                code = _short_to_code(short)
-                if code and code not in result:
-                    result[code] = {"runs": int(runs_str), "balls": overs_to_balls(overs_str)}
-                    break
+    result = {
+        found[0][0]: {"runs": found[0][1], "balls": found[0][2]},
+        found[1][0]: {"runs": found[1][1], "balls": found[1][2]},
+    }
 
-        if len(result) == 2:
-            codes = list(result.keys())
-            print(
-                f"[CB] Match {match_id} innings (meta): "
-                f"{codes[0]} {result[codes[0]]} vs {codes[1]} {result[codes[1]]}",
-                file=sys.stderr,
-            )
-            return result
-
-    print(f"[CB] Could not parse innings for {match_id}", file=sys.stderr)
-    return None
+    print(f"[CB] Match {match_id} innings: {result}", file=sys.stderr)
+    return result
 
 def _parse_winner_from_result(result_text: str) -> Optional[str]:
     """Extract winner code from result string like 'Royal Challengers Bengaluru won by 6 wkts'."""
@@ -371,7 +350,6 @@ def fetch_cricbuzz_innings_aggregates(
       { "SRH": {"runs": int, "balls": int}, "RCB": {"runs": int, "balls": int} }
     """
     match_id_map = _fetch_all_match_ids()
-    _debug_dump_html(149695)  # TEMP - remove after
     aggregates: Dict[str, Dict[str, Any]] = {}
     fetched: set = set()
 
