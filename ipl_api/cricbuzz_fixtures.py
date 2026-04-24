@@ -84,6 +84,12 @@ KNOWN_MATCH_IDS: Dict[str, int] = {
     "MI-RR-2026-05-24": 152252,
     "KKR-DC-2026-05-24": 152263,
 }
+HARDCODED_INNINGS: Dict[str, Dict[str, Any]] = {
+    149743: {  # RR vs MI, Apr 7 - 11-over rain-reduced game
+        "RR": {"runs": 150, "balls": 66},
+        "MI": {"runs": 123, "balls": 66},
+    },
+}
 
 CB_NAME_TO_CODE: Dict[str, str] = {
     "royal challengers bengaluru": "RCB",
@@ -226,6 +232,9 @@ def _fetch_scorecard_result(match_id: int) -> Optional[Dict[str, Any]]:
     return None
 
 def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
+    if match_id in HARDCODED_INNINGS:
+        print(f"[CB] Using hardcoded innings for match {match_id}", file=sys.stderr)
+        return HARDCODED_INNINGS[match_id]
     url = f"https://www.cricbuzz.com/live-cricket-scores/{match_id}/"
     try:
         r = requests.get(url, headers=_get_headers(), timeout=20)
