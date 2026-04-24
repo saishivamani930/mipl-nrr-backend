@@ -251,27 +251,38 @@ def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
 
     content = meta.group(1)
 
-    # Matches both "RCB 203/4 (15.4)" AND "SRH 201/9" (no overs = all out = 20 overs)
     pattern = re.compile(
         r'\b(RCB|CSK|MI|KKR|SRH|RR|DC|PBKS|LSG|GT)\s+(\d{2,3})/(\d{1,2})(?:\s*\((\d{1,2}(?:\.\d)?)\))?'
     )
 
-    found = {}
+    found = []  # list of (code, runs, wkts, overs_or_None) in order they appear
+    seen = set()
     for code, runs, wkts, overs in pattern.findall(content):
-        if code in found:
+        if code in seen:
             continue
+        seen.add(code)
+        found.append((code, int(runs), int(wkts), overs if overs else None))
+
+    if len(found) != 2:
+        print(f"[CB] Could not parse innings for {match_id}", file=sys.stderr)
+        return None
+
+    # First team in meta batted first
+    # All-out = 10 wickets. If overs missing, they were all out (10 wkts) = 120 balls
+    result = {}
+    for code, runs, wkts, overs in found:
         if overs:
             balls = overs_to_balls(overs)
         else:
-            balls = 120  # all out = full 20 overs
-        found[code] = {"runs": int(runs), "balls": balls}
+            # No overs shown = all out = 120 balls
+            balls = 120
+        # Override: if all 10 wickets fell, always 120 balls regardless
+        if wkts == 10:
+            balls = 120
+        result[code] = {"runs": runs, "balls": balls}
 
-    if len(found) == 2:
-        print(f"[CB] Match {match_id} innings (meta): {found}", file=sys.stderr)
-        return found
-
-    print(f"[CB] Could not parse innings for {match_id}", file=sys.stderr)
-    return None
+    print(f"[CB] Match {match_id} innings (meta): {result}", file=sys.stderr)
+    return result
 
 def _parse_winner_from_result(result_text: str) -> Optional[str]:
     """Extract winner code from result string like 'Royal Challengers Bengaluru won by 6 wkts'."""
