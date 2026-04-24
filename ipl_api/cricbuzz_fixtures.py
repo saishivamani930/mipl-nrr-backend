@@ -250,9 +250,10 @@ def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
         return None
 
     content = meta.group(1)
+    content = re.sub(r'\s+', ' ', content)
 
     pattern = re.compile(
-        r'\b(RCB|CSK|MI|KKR|SRH|RR|DC|PBKS|LSG|GT)\s+(\d{2,3})/(\d{1,2})(?:\s*\((\d{1,2}(?:\.\d)?)\))?'
+        r'\b(RCB|CSK|MI|KKR|SRH|RR|DC|PBKS|LSG|GT)\s+(\d{2,3})/(\d{1,2})(?:\s*\((\d{1,2}(?:\.\d)?)\))?', re.DOTALL
     )
 
     found = []  # list of (code, runs, wkts, overs_or_None) in order they appear
