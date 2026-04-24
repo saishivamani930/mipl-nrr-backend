@@ -618,6 +618,10 @@ def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
             if not winner:
                 continue
 
+            result_text = f.get("result", "")
+            if "rain" in result_text.lower() or "d/l" in result_text.lower() or "duckworth" in result_text.lower():
+                continue
+
             loser = t2 if winner == t1 else t1
             teams[winner]["matches"] += 1
             teams[loser]["matches"] += 1
