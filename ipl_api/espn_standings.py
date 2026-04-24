@@ -629,6 +629,7 @@ def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
             if innings and t1 in innings and t2 in innings:
                 # innings[tX]["runs"] and innings[tX]["balls"] are already keyed by team code
                 # so this assignment is correct regardless of batting order
+                print(f"[DEBUG NRR] {t1} vs {t2} | winner={winner} | innings={innings}", file=sys.stderr)
                 teams[t1]["runs_for"]      += innings[t1]["runs"]
                 teams[t1]["balls_for"]     += innings[t1]["balls"]
                 teams[t1]["runs_against"]  += innings[t2]["runs"]
