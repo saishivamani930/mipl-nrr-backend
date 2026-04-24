@@ -226,6 +226,39 @@ def _fetch_scorecard_result(match_id: int) -> Optional[Dict[str, Any]]:
     return None
 
 def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
+    # Try JSON API first (much more reliable than HTML scraping)
+    api_url = f"https://www.cricbuzz.com/api/cricket-match/{match_id}/full-scorecard"
+    try:
+        r = requests.get(api_url, headers=_get_headers(), timeout=20)
+        if r.status_code == 200:
+            data = r.json()
+            innings_list = data.get("scoreCard", [])
+            found = {}
+            for inn in innings_list:
+                bat_team = inn.get("batTeamDetails", {})
+                short = bat_team.get("batTeamShortName", "")
+                code = _short_to_code(short)
+                if not code:
+                    continue
+                runs = inn.get("scoreDetails", {}).get("runs", 0)
+                overs_str = str(inn.get("scoreDetails", {}).get("overs", "0"))
+                balls = 0
+                if "." in overs_str:
+                    full, partial = overs_str.split(".")
+                    balls = int(full) * 6 + int(partial)
+                else:
+                    balls = int(float(overs_str)) * 6
+                if code not in found:
+                    found[code] = {"runs": runs, "balls": balls}
+                if len(found) == 2:
+                    break
+            if len(found) == 2:
+                print(f"[CB] Match {match_id} innings (API): {found}", file=sys.stderr)
+                return found
+    except Exception as e:
+        print(f"[CB] JSON API innings failed for {match_id}: {e}", file=sys.stderr)
+
+    # Fallback: scrape HTML with broader patterns
     url = f"https://www.cricbuzz.com/live-cricket-scores/{match_id}/"
     try:
         r = requests.get(url, headers=_get_headers(), timeout=20)
@@ -244,30 +277,30 @@ def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
 
     full_html = re.sub(r"\s+", " ", html)
 
-    # Match things like: DC 164/4 (18.1)
-    pattern = re.compile(r'\b(RCB|CSK|MI|KKR|SRH|RR|DC|PBKS|LSG|GT)\s+(\d{1,3})/(\d{1,2})\s*\((\d+(?:\.\d)?)\)')
-
-    found = []
-    seen = set()
-
-    for short, runs, wkts, overs in pattern.findall(full_html):
-        if short not in seen:
-            seen.add(short)
-            found.append((short, int(runs), overs_to_balls(overs)))
+    found = {}
+    # Pattern 1: "DC 164/4 (18.1)" style
+    p1 = re.compile(r'\b(RCB|CSK|MI|KKR|SRH|RR|DC|PBKS|LSG|GT)\b[^<]{0,10}?(\d{2,3})/(\d{1,2})[^<]{0,10}?\((\d{1,2}(?:\.\d)?)\)')
+    for code, runs, wkts, overs in p1.findall(full_html):
+        if code not in found:
+            found[code] = {"runs": int(runs), "balls": overs_to_balls(overs)}
         if len(found) == 2:
             break
+
+    # Pattern 2: runs and overs in separate nearby elements
+    if len(found) < 2:
+        p2 = re.compile(r'"(?:runs|score)"\s*:\s*(\d+).*?"(?:overs|ovrs)"\s*:\s*"?(\d+(?:\.\d)?)"?.*?"(?:shortName|sName|code)"\s*:\s*"(RCB|CSK|MI|KKR|SRH|RR|DC|PBKS|LSG|GT)"', re.DOTALL)
+        for runs, overs, code in p2.findall(full_html):
+            if code not in found:
+                found[code] = {"runs": int(runs), "balls": overs_to_balls(overs)}
+            if len(found) == 2:
+                break
 
     if len(found) < 2:
         print(f"[CB] Could not parse innings for {match_id}", file=sys.stderr)
         return None
 
-    result = {
-        found[0][0]: {"runs": found[0][1], "balls": found[0][2]},
-        found[1][0]: {"runs": found[1][1], "balls": found[1][2]},
-    }
-
-    print(f"[CB] Match {match_id} innings: {result}", file=sys.stderr)
-    return result
+    print(f"[CB] Match {match_id} innings (HTML): {found}", file=sys.stderr)
+    return found
 
 def _parse_winner_from_result(result_text: str) -> Optional[str]:
     """Extract winner code from result string like 'Royal Challengers Bengaluru won by 6 wkts'."""
