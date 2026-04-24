@@ -253,33 +253,31 @@ def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
     content = re.sub(r'\s+', ' ', content)
 
     pattern = re.compile(
-        r'\b(RCB|CSK|MI|KKR|SRH|RR|DC|PBKS|LSG|GT)\s+(\d{2,3})/(\d{1,2})(?:\s*\((\d{1,2}(?:\.\d)?)\))?', re.DOTALL
-    )
+    r'\b(RCB|CSK|MI|KKR|SRH|RR|DC|PBKS|LSG|GT)\s+(\d{2,3})(?:/(\d{1,2}))?(?:\s*\((\d{1,2}(?:\.\d)?)\))?',
+    re.DOTALL
+)
 
-    found = []  # list of (code, runs, wkts, overs_or_None) in order they appear
+    found = []
     seen = set()
     for code, runs, wkts, overs in pattern.findall(content):
         if code in seen:
             continue
         seen.add(code)
-        found.append((code, int(runs), int(wkts), overs if overs else None))
+        wkts_int = int(wkts) if wkts else 10
+        if overs:
+            balls = overs_to_balls(overs)
+        else:
+            balls = 120
+        if wkts_int == 10:
+            balls = 120
+        found.append((code, int(runs), balls))
 
     if len(found) != 2:
         print(f"[CB] Could not parse innings for {match_id}", file=sys.stderr)
         return None
 
-    # First team in meta batted first
-    # All-out = 10 wickets. If overs missing, they were all out (10 wkts) = 120 balls
     result = {}
-    for code, runs, wkts, overs in found:
-        if overs:
-            balls = overs_to_balls(overs)
-        else:
-            # No overs shown = all out = 120 balls
-            balls = 120
-        # Override: if all 10 wickets fell, always 120 balls regardless
-        if wkts == 10:
-            balls = 120
+    for code, runs, balls in found:
         result[code] = {"runs": runs, "balls": balls}
 
     print(f"[CB] Match {match_id} innings (meta): {result}", file=sys.stderr)
