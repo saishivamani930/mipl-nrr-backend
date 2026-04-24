@@ -482,7 +482,19 @@ def fetch_espn_points_table(season: int) -> Dict[str, Any]:
     ]
  
     logger.info(f"[STANDINGS] Starting fetch for season={season} at {datetime.utcnow().isoformat()}Z")
- 
+
+    # ── Try Cricbuzz FIRST (has NRR directly) ────────────────────────────────
+    try:
+        cb_result = fetch_cricbuzz_points_table(season)
+        if cb_result and cb_result.get("teams"):
+            logger.info(f"[STANDINGS] ✅ Cricbuzz primary succeeded — {len(cb_result['teams'])} teams")
+            return cb_result
+        else:
+            logger.warning("[STANDINGS] Cricbuzz primary returned no teams, falling back to ESPN")
+    except Exception as e:
+        logger.error(f"[STANDINGS] Cricbuzz primary failed: {e}, falling back to ESPN")
+    # ── END ──────────────────────────────────────────────────────────────────
+
     for i, url in enumerate(urls, 1):
         try:
             logger.info(f"[STANDINGS] Trying URL {i}/{len(urls)}: {url}")
@@ -498,18 +510,7 @@ def fetch_espn_points_table(season: int) -> Dict[str, Any]:
             last_error = e
             continue
  
-    # ── NEW: Cricbuzz fallback ────────────────────────────────────────────────
-    logger.warning("[STANDINGS] All ESPN URLs failed. Trying Cricbuzz points table...")
-    try:
-        cb_result = fetch_cricbuzz_points_table(season)
-        if cb_result and cb_result.get("teams"):
-            logger.info(f"[STANDINGS] ✅ Cricbuzz fallback succeeded — {len(cb_result['teams'])} teams")
-            return cb_result
-        else:
-            logger.warning("[STANDINGS] Cricbuzz fallback returned no teams")
-    except Exception as e:
-        logger.error(f"[STANDINGS] Cricbuzz fallback failed: {e}")
-    # ── END NEW ───────────────────────────────────────────────────────────────
+    
  
     logger.error(f"[STANDINGS] 💀 All sources failed. Falling back to fixture-derived standings.")
     return compute_standings_from_fixtures(season)

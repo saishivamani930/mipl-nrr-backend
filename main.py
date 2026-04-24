@@ -228,71 +228,53 @@ def _load_live_state(season: int):
 # -----------------------
 @app.get("/api/standings")
 def get_live_standings(season: int = DEFAULT_SEASON):
-    standings = _get_live_standings_cached(season)
+    cache_key_fresh = f"ipl-standings:{season}:fresh"
+    cache_key_stale = f"ipl-standings:{season}:stale"
 
-    # Build state from ESPN table
-    state = state_from_standings(standings, require_aggregates=False)
-
-    # Fetch Cricbuzz innings aggregates for completed matches
-    completed_pairs = list(KNOWN_MATCH_IDS.keys())
-    innings_map = fetch_cricbuzz_innings_aggregates(completed_pairs)
-
-    # Reset aggregates before recomputing from Cricbuzz
-    for row in state.values():
-        row.agg.runs_for = 0
-        row.agg.balls_for = 0
-        row.agg.runs_against = 0
-        row.agg.balls_against = 0
-
-    applied = set()
-
-    for pair, innings in innings_map.items():
-        parts = pair.split("-")
-        if len(parts) < 2:
-            continue
-
-        t1, t2 = parts[0], parts[1]
-        match_key = f"{t1}-{t2}"
-        reverse_key = f"{t2}-{t1}"
-
-        # avoid double-applying because innings_map stores both directions
-        if match_key in applied or reverse_key in applied:
-            continue
-
-        if t1 not in state or t2 not in state:
-            continue
-        if t1 not in innings or t2 not in innings:
-            continue
-
-        i1 = innings[t1]
-        i2 = innings[t2]
-
-        if not i1.get("balls") or not i2.get("balls"):
-            continue
-
-        apply_match_batting_first(
-            state[t1].agg,
-            state[t2].agg,
-            i1["runs"],
-            "20.0",
-            i2["runs"],
-            "20.0",
-            team1_balls_override=i1["balls"],
-            team2_balls_override=i2["balls"],
+    cached_fresh = cache_get(cache_key_fresh)
+    if cached_fresh is not None:
+        _ensure_standings_non_empty(cached_fresh, season)
+        cached_fresh["teams"] = sorted(
+            cached_fresh.get("teams", []),
+            key=lambda t: (-(t.get("points") or 0), -(t.get("nrr") or 0))
         )
+        return {
+            "source": cached_fresh.get("source", "espn"),
+            "season": season,
+            "stale": False,
+            "data": cached_fresh,
+        }
 
-        applied.add(match_key)
+    try:
+        data = fetch_espn_points_table(season)
+        _ensure_standings_non_empty(data, season)
 
-    table = compute_sorted_table(list(state.values()))
+        cache_set(cache_key_fresh, data, ttl_seconds=STANDINGS_CACHE_TTL_SECONDS)
+        cache_set(cache_key_stale, data, ttl_seconds=24 * 3600)
 
-    return {
-        "source": "computed",
-        "season": season,
-        "matches_with_aggregates": len(applied),
-        "data": {
-            "teams": table
-        },
-    }
+        data["teams"] = sorted(
+            data.get("teams", []),
+            key=lambda t: (-(t.get("points") or 0), -(t.get("nrr") or 0))
+        )
+        return {"source": "espn", "season": season, "stale": False, "data": data}
+
+    except StandingsScrapeError as e:
+        cached_stale = cache_get(cache_key_stale)
+        if cached_stale is not None:
+            cached_stale["teams"] = sorted(
+                cached_stale.get("teams", []),
+                key=lambda t: (-(t.get("points") or 0), -(t.get("nrr") or 0))
+            )
+            return {
+                "source": "cache",
+                "season": season,
+                "stale": True,
+                "warning": "Live scrape failed, serving cached data",
+                "error": str(e),
+                "data": cached_stale,
+            }
+        raise HTTPException(status_code=502, detail=f"Unable to fetch IPL standings: {str(e)}")
+
 
 # -----------------------
 # Live fixtures endpoint
