@@ -619,8 +619,7 @@ def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
                 continue
 
             result_text = f.get("result", "")
-            if "rain" in result_text.lower() or "d/l" in result_text.lower() or "duckworth" in result_text.lower():
-                continue
+            is_rain_affected = "rain" in result_text.lower() or "d/l" in result_text.lower() or "duckworth" in result_text.lower()
 
             loser = t2 if winner == t1 else t1
             teams[winner]["matches"] += 1
@@ -628,6 +627,10 @@ def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
             teams[winner]["won"] += 1
             teams[loser]["lost"] += 1
             teams[winner]["points"] += 2
+
+            if is_rain_affected:
+                continue
+
 
             # Add innings aggregates if available
             pair_key = f"{t1}-{t2}"
