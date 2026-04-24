@@ -242,20 +242,33 @@ def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
             return int(full) * 6 + int(partial)
         return int(s) * 6
 
-    # Extract from meta description: "RCB 203/4 (15.4) vs SRH 201/9"
     meta = re.search(r'<meta name="description" content="([^"]+)"', html)
-    if meta:
-        content = meta.group(1)
-        pattern = re.compile(
-            r'\b(RCB|CSK|MI|KKR|SRH|RR|DC|PBKS|LSG|GT)\s+(\d{2,3})/(\d{1,2})\s*\((\d{1,2}(?:\.\d)?)\)'
-        )
-        found = {}
-        for code, runs, wkts, overs in pattern.findall(content):
-            if code not in found:
-                found[code] = {"runs": int(runs), "balls": overs_to_balls(overs)}
-        if len(found) == 2:
-            print(f"[CB] Match {match_id} innings (meta): {found}", file=sys.stderr)
-            return found
+    if not meta:
+        meta = re.search(r'<meta property="og:description" content="([^"]+)"', html)
+    if not meta:
+        print(f"[CB] Could not parse innings for {match_id}", file=sys.stderr)
+        return None
+
+    content = meta.group(1)
+
+    # Matches both "RCB 203/4 (15.4)" AND "SRH 201/9" (no overs = all out = 20 overs)
+    pattern = re.compile(
+        r'\b(RCB|CSK|MI|KKR|SRH|RR|DC|PBKS|LSG|GT)\s+(\d{2,3})/(\d{1,2})(?:\s*\((\d{1,2}(?:\.\d)?)\))?'
+    )
+
+    found = {}
+    for code, runs, wkts, overs in pattern.findall(content):
+        if code in found:
+            continue
+        if overs:
+            balls = overs_to_balls(overs)
+        else:
+            balls = 120  # all out = full 20 overs
+        found[code] = {"runs": int(runs), "balls": balls}
+
+    if len(found) == 2:
+        print(f"[CB] Match {match_id} innings (meta): {found}", file=sys.stderr)
+        return found
 
     print(f"[CB] Could not parse innings for {match_id}", file=sys.stderr)
     return None
