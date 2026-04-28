@@ -816,7 +816,7 @@ def debug_cache():
     from ipl_api.cache import debug_snapshot
     return debug_snapshot()
 
-@app.get("/api/debug/cache/clear")
+@app.get("/api/debug/clearcache")
 def clear_cache():
     from ipl_api.cache import clear
     clear()
