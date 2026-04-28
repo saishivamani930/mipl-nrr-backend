@@ -212,7 +212,15 @@ def _fetch_scorecard_result(match_id: int) -> Optional[Dict[str, Any]]:
         print(f"[CB] Scorecard fetch failed for {match_id}: {e}", file=sys.stderr)
         return None
 
-    all_won_by = re.findall(r'([A-Za-z ]{5,50}won by[^<"\\]{5,60})', html)
+    # Only look in title/meta tags — specific to this match, not sidebar noise
+    targeted_html = ""
+    title = re.search(r'<title[^>]*>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
+    if title:
+        targeted_html += title.group(1) + " "
+    for meta in re.finditer(r'<meta[^>]+content=["\']([^"\']*won by[^"\']*)["\']', html, re.IGNORECASE):
+        targeted_html += meta.group(1) + " "
+
+    all_won_by = re.findall(r'([A-Za-z ]{5,50}won by[^<"\\]{5,60})', targeted_html)
     for result_text in all_won_by:
         result_text = result_text.strip()
         winner_code = _parse_winner_from_result(result_text)
