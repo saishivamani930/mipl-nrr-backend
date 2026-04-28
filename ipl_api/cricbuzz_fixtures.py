@@ -235,6 +235,7 @@ def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
     if match_id in HARDCODED_INNINGS:
         print(f"[CB] Using hardcoded innings for match {match_id}", file=sys.stderr)
         return HARDCODED_INNINGS[match_id]
+    
     url = f"https://www.cricbuzz.com/live-cricket-scores/{match_id}/"
     try:
         r = requests.get(url, headers=_get_headers(), timeout=20)
@@ -251,53 +252,85 @@ def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
             return int(full) * 6 + int(partial)
         return int(s) * 6
 
+    # --- Step 1: Try meta description first ---
     meta = re.search(r'<meta name="description" content="([^"]+)"', html)
     if not meta:
         meta = re.search(r'<meta property="og:description" content="([^"]+)"', html)
-    if not meta:
-        print(f"[CB] Could not parse innings for {match_id}", file=sys.stderr)
-        return None
-
-    content = meta.group(1)
-    content = re.sub(r'\s+', ' ', content)
-
-    pattern = re.compile(
-    r'\b(RCB|CSK|MI|KKR|SRH|RR|DC|PBKS|LSG|GT)\s+(\d{2,3})(?:/(\d{1,2}))?(?:\s*\((\d{1,2}(?:\.\d)?)\))?',
-    re.DOTALL
-)
 
     found = []
-    seen = set()
-    for code, runs, wkts, overs in pattern.findall(content):
-        if code in seen:
-            continue
-        seen.add(code)
-        wkts_int = int(wkts) if wkts else 10
-        all_out = (wkts_int == 10)
+    if meta:
+        content = re.sub(r'\s+', ' ', meta.group(1))
+        pattern = re.compile(
+            r'\b(RCB|CSK|MI|KKR|SRH|RR|DC|PBKS|LSG|GT)\s+'
+            r'(\d{2,3})(?:/(\d{1,2}))?(?:\s*\((\d{1,2}(?:\.\d{1})?)\))?',
+        )
+        seen = set()
+        for code, runs, wkts, overs in pattern.findall(content):
+            if code in seen:
+                continue
+            seen.add(code)
+            wkts_int = int(wkts) if wkts else 10
+            all_out = (wkts_int == 10)
+            if all_out:
+                balls = 120  # ICC rule: all out → full allocated overs
+            elif overs:
+                balls = overs_to_balls(overs)
+            else:
+                balls = None  # unknown — will try scorecard fallback
+            found.append((code, int(runs), balls, all_out))
 
-        if all_out:
-            # All out: always count as full 20 overs regardless of overs shown
-            balls = 120
-        elif overs:
-            # Not all out and overs are present: use actual overs (e.g. chase completed early)
-            balls = overs_to_balls(overs)
-        else:
-            # Not all out, overs missing from meta: this is ambiguous.
-            # Do NOT default to 120 — that incorrectly penalises fast chasers.
-            # Skip this match so bad data doesn't corrupt NRR.
-            print(f"[CB] Match {match_id}: overs missing for {code} ({runs}/{wkts}) — skipping innings parse", file=sys.stderr)
-            return None
-        found.append((code, int(runs), balls))
+    # --- Step 2: If meta parse incomplete, scrape the scorecard HTML ---
+    missing_overs = any(balls is None for _, _, balls, _ in found) if found else True
+
+    if missing_overs or len(found) != 2:
+        print(f"[CB] Match {match_id}: falling back to scorecard HTML scrape", file=sys.stderr)
+        # Try the scorecard tab URL
+        scorecard_url = f"https://www.cricbuzz.com/cricket-scores/{match_id}/"
+        try:
+            r2 = requests.get(scorecard_url, headers=_get_headers(), timeout=20)
+            r2.raise_for_status()
+            sc_html = r2.text
+        except Exception as e:
+            print(f"[CB] Scorecard fallback failed for {match_id}: {e}", file=sys.stderr)
+            sc_html = html  # use original
+
+        # Look for patterns like "154/8 (20 ov)" or "210/3 (19.4 ov)"
+        sc_pattern = re.compile(
+            r'\b(RCB|CSK|MI|KKR|SRH|RR|DC|PBKS|LSG|GT)[^<]{0,60}'
+            r'(\d{2,3})/(\d{1,2})\s*\((\d{1,2}(?:\.\d{1,2})?)\s*(?:ov|overs?)\)',
+            re.IGNORECASE
+        )
+        seen2 = set()
+        found2 = []
+        for m in sc_pattern.finditer(sc_html):
+            code = m.group(1).upper()
+            if code in seen2:
+                continue
+            seen2.add(code)
+            runs = int(m.group(2))
+            wkts = int(m.group(3))
+            overs_str = m.group(4)
+            all_out = (wkts == 10)
+            balls = 120 if all_out else overs_to_balls(overs_str)
+            found2.append((code, runs, balls, all_out))
+
+        if len(found2) == 2:
+            found = found2
+        elif len(found) == 2 and missing_overs:
+            # Scorecard scrape also failed — last resort: assume 120 for unknown overs
+            # (better than dropping the match entirely)
+            print(f"[CB] Match {match_id}: assuming 120 balls for innings with unknown overs", file=sys.stderr)
+            found = [(c, r, b if b is not None else 120, ao) for c, r, b, ao in found]
 
     if len(found) != 2:
         print(f"[CB] Could not parse innings for {match_id}", file=sys.stderr)
         return None
 
     result = {}
-    for code, runs, balls in found:
+    for code, runs, balls, _ in found:
         result[code] = {"runs": runs, "balls": balls}
 
-    print(f"[CB] Match {match_id} innings (meta): {result}", file=sys.stderr)
+    print(f"[CB] Match {match_id} innings: {result}", file=sys.stderr)
     return result
 
 def _parse_winner_from_result(result_text: str) -> Optional[str]:
