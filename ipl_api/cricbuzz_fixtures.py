@@ -273,12 +273,20 @@ def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
             continue
         seen.add(code)
         wkts_int = int(wkts) if wkts else 10
-        if overs:
+        all_out = (wkts_int == 10)
+
+        if all_out:
+            # All out: always count as full 20 overs regardless of overs shown
+            balls = 120
+        elif overs:
+            # Not all out and overs are present: use actual overs (e.g. chase completed early)
             balls = overs_to_balls(overs)
         else:
-            balls = 120
-        if wkts_int == 10:
-            balls = 120
+            # Not all out, overs missing from meta: this is ambiguous.
+            # Do NOT default to 120 — that incorrectly penalises fast chasers.
+            # Skip this match so bad data doesn't corrupt NRR.
+            print(f"[CB] Match {match_id}: overs missing for {code} ({runs}/{wkts}) — skipping innings parse", file=sys.stderr)
+            return None
         found.append((code, int(runs), balls))
 
     if len(found) != 2:
