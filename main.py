@@ -815,3 +815,9 @@ def api_defend_loss_max_balls(req: ThresholdDefendLossBallsRequest):
 def debug_cache():
     from ipl_api.cache import debug_snapshot
     return debug_snapshot()
+
+@app.get("/api/debug/cache/clear")
+def clear_cache():
+    from ipl_api.cache import clear
+    clear()
+    return {"status": "cache cleared"}
