@@ -212,15 +212,7 @@ def _fetch_scorecard_result(match_id: int) -> Optional[Dict[str, Any]]:
         print(f"[CB] Scorecard fetch failed for {match_id}: {e}", file=sys.stderr)
         return None
 
-    # Only look in title/meta tags — specific to this match, not sidebar noise
-    targeted_html = ""
-    title = re.search(r'<title[^>]*>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
-    if title:
-        targeted_html += title.group(1) + " "
-    for meta in re.finditer(r'<meta[^>]+content=["\']([^"\']*won by[^"\']*)["\']', html, re.IGNORECASE):
-        targeted_html += meta.group(1) + " "
-
-    all_won_by = re.findall(r'([A-Za-z ]{5,50}won by[^<"\\]{5,60})', targeted_html)
+    all_won_by = re.findall(r'([A-Za-z ]{5,50}won by[^<"\\]{5,60})', html)
     for result_text in all_won_by:
         result_text = result_text.strip()
         winner_code = _parse_winner_from_result(result_text)
@@ -253,7 +245,7 @@ def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
         return None
 
     def overs_to_balls(overs_str: str) -> int:
-        s = str(overs_str).strip()  
+        s = str(overs_str).strip()
         if "." in s:
             full, partial = s.split(".")
             return int(full) * 6 + int(partial)
@@ -339,6 +331,9 @@ def fetch_cricbuzz_ipl_results(
         date_key = f"{canonical}-{match_date}" if match_date else ""
         reverse_date_key = f"{reverse}-{match_date}" if match_date else ""
 
+        if canonical in fetched:
+            continue
+
         cb_match_id = (
             KNOWN_MATCH_IDS.get(date_key)
             or KNOWN_MATCH_IDS.get(reverse_date_key)
@@ -349,12 +344,10 @@ def fetch_cricbuzz_ipl_results(
             print(f"[CB] No match ID found for {canonical} — skipping", file=sys.stderr)
             continue
 
-        if cb_match_id in fetched:
-            continue
-
         time.sleep(random.uniform(0.5, 2.0))
         result = _fetch_scorecard_result(cb_match_id)
-        fetched.add(cb_match_id)
+        fetched.add(canonical)
+        fetched.add(reverse)
 
         if result:
             result["team1_code"] = t1
@@ -362,11 +355,10 @@ def fetch_cricbuzz_ipl_results(
             result["cb_match_id"] = cb_match_id
             result["match_date"] = pair
 
-            result_map[str(cb_match_id)] = result
-            if date_key:
-                result_map[date_key] = result
-            if reverse_date_key:
-                result_map[reverse_date_key] = result
+            mid_key = str(cb_match_id)
+            result_map[mid_key] = result
+            result_map[canonical] = result
+            result_map[reverse] = result
 
     print(f"[CB] Fetched results for {len([k for k in result_map if '-' not in k])} completed matches", file=sys.stderr)
     return result_map

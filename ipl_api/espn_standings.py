@@ -347,84 +347,129 @@ def _parse_table_from_html(html: str, season: int) -> Optional[Dict[str, Any]]:
         "teams": teams,
     }
 def fetch_cricbuzz_points_table(season: int) -> Optional[Dict[str, Any]]:
-    from ipl_api.cricbuzz_fixtures import _extract_next_f_json_objects, CB_NAME_TO_CODE, CRICBUZZ_IPL_SERIES_ID
-
-    url = f"https://www.cricbuzz.com/cricket-series/{CRICBUZZ_IPL_SERIES_ID}/indian-premier-league-{season}/points-table"
+    """
+    Scrape the IPL points table from Cricbuzz.
+    Returns the same shape as _parse_table_from_html(), or None on failure.
+    Used as a fallback when all ESPN URLs fail.
+    """
+    from bs4 import BeautifulSoup
+ 
+    CRICBUZZ_SERIES_ID = 9241
+    url = f"https://www.cricbuzz.com/cricket-series/{CRICBUZZ_SERIES_ID}/indian-premier-league-{season}/points-table"
     logger.info(f"[STANDINGS] Trying Cricbuzz points table: {url}")
-
+ 
     try:
         html = _fetch_html(url)
     except Exception as e:
         logger.warning(f"[STANDINGS] Cricbuzz points table fetch failed: {e}")
         return None
-
-    CANONICAL = {
-        "RCB": "Royal Challengers Bengaluru", "CSK": "Chennai Super Kings",
-        "MI": "Mumbai Indians", "KKR": "Kolkata Knight Riders",
-        "SRH": "Sunrisers Hyderabad", "RR": "Rajasthan Royals",
-        "DC": "Delhi Capitals", "PBKS": "Punjab Kings",
-        "LSG": "Lucknow Super Giants", "GT": "Gujarat Titans",
+ 
+    CB_CODE_MAP: Dict[str, str] = {
+        "rcb": "RCB", "royal challengers bengaluru": "RCB", "royal challengers bangalore": "RCB",
+        "csk": "CSK", "chennai super kings": "CSK",
+        "mi": "MI",  "mumbai indians": "MI",
+        "kkr": "KKR", "kolkata knight riders": "KKR",
+        "srh": "SRH", "sunrisers hyderabad": "SRH",
+        "rr": "RR",  "rajasthan royals": "RR",
+        "dc": "DC",  "delhi capitals": "DC",
+        "pbks": "PBKS", "punjab kings": "PBKS",
+        "lsg": "LSG", "lucknow super giants": "LSG",
+        "gt": "GT",  "gujarat titans": "GT",
     }
-
-    import re, json
-
-    teams = []
-    seen_codes = set()
-
-    # Extract __next_f fragments and look for points table data
-    fragments = re.findall(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)', html, re.DOTALL)
-    for frag in fragments:
-        try:
-            unescaped = frag.encode().decode("unicode_escape")
-        except Exception:
-            unescaped = frag
-
-        if "pointsTable" not in unescaped and "points_table" not in unescaped.lower() and "teamName" not in unescaped:
-            continue
-
-        # Look for team standing objects with points/nrr
-        for blob in re.finditer(r'\{[^{}]*"teamName"[^{}]*\}', unescaped):
-            try:
-                obj = json.loads(blob.group(0))
-                team_name = obj.get("teamName", "")
-                code = CB_NAME_TO_CODE.get(team_name.strip().lower())
-                if not code or code in seen_codes:
-                    continue
-
-                matches = int(obj.get("matchesPlayed") or obj.get("played") or 0)
-                won = int(obj.get("matchesWon") or obj.get("won") or 0)
-                lost = int(obj.get("matchesLost") or obj.get("lost") or 0)
-                nr = int(obj.get("matchesNoResult") or obj.get("nr") or 0)
-                points = int(obj.get("points") or 0)
-                nrr = _safe_float(obj.get("nrr") or obj.get("netRunRate"))
-
-                seen_codes.add(code)
-                teams.append({
-                    "team": CANONICAL.get(code, team_name),
-                    "code": code,
-                    "matches": matches,
-                    "won": won,
-                    "lost": lost,
-                    "nr": nr,
-                    "points": points,
-                    "nrr": nrr,
-                })
-            except Exception:
-                continue
-
-    if not teams:
-        logger.warning("[STANDINGS] Cricbuzz __next_f: parsed 0 teams")
+ 
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+    except Exception as e:
+        logger.warning(f"[STANDINGS] BeautifulSoup parse failed: {e}")
         return None
-
-    logger.info(f"[STANDINGS] Cricbuzz __next_f: parsed {len(teams)} teams")
+ 
+    # Cricbuzz renders the points table as a series of team rows in a div/table.
+    # Each row has: team name/short, M, W, L, NR, Pts, NRR
+    # The selector targets the points-table section.
+    rows = soup.select("div[class*='cb-srs-pnts'] table tbody tr")
+ 
+    if not rows:
+        # Fallback: try any table on the page
+        tables = soup.find_all("table")
+        logger.info(f"[STANDINGS] Cricbuzz: found {len(tables)} tables on page (fallback path)")
+        if not tables:
+            logger.warning("[STANDINGS] Cricbuzz: no tables found on page")
+            return None
+        # Use pd.read_html as a secondary parse
+        result = _parse_table_from_html(html, season)
+        if result:
+            result["source"] = "cricbuzz"
+        return result
+ 
+    teams = []
+    for row in rows:
+        cells = [td.get_text(strip=True) for td in row.find_all("td")]
+        if len(cells) < 7:
+            continue
+ 
+        # Cricbuzz column order: Team, M, W, L, NR, Pts, NRR
+        raw_name = cells[0]
+        name_lower = raw_name.lower()
+        code = CB_CODE_MAP.get(name_lower)
+ 
+        if not code:
+            # Try partial match
+            for key, val in CB_CODE_MAP.items():
+                if key in name_lower or name_lower in key:
+                    code = val
+                    break
+ 
+        # Clean display name
+        display_name = raw_name
+        for full, c in CB_CODE_MAP.items():
+            if c == code and len(full) > 3:
+                display_name = full.title()
+                break
+ 
+        # Use the IPL_TEAM_NAMES mapping for canonical names
+        canonical = {
+            "RCB": "Royal Challengers Bengaluru", "CSK": "Chennai Super Kings",
+            "MI": "Mumbai Indians", "KKR": "Kolkata Knight Riders",
+            "SRH": "Sunrisers Hyderabad", "RR": "Rajasthan Royals",
+            "DC": "Delhi Capitals", "PBKS": "Punjab Kings",
+            "LSG": "Lucknow Super Giants", "GT": "Gujarat Titans",
+        }
+        team_display = canonical.get(code, display_name) if code else display_name
+ 
+        try:
+            matches  = int(cells[1])
+            won      = int(cells[2])
+            lost     = int(cells[3])
+            nr       = int(cells[4]) if cells[4].isdigit() else 0
+            points   = int(cells[5])
+            nrr      = _safe_float(cells[6])
+        except (ValueError, IndexError):
+            logger.warning(f"[STANDINGS] Cricbuzz: failed to parse row cells: {cells}")
+            continue
+ 
+        teams.append({
+            "team": team_display,
+            "code": code,
+            "matches": matches,
+            "won": won,
+            "lost": lost,
+            "nr": nr,
+            "points": points,
+            "nrr": nrr,
+        })
+ 
+    if not teams:
+        logger.warning("[STANDINGS] Cricbuzz: parsed 0 teams from points table rows")
+        return None
+ 
+    logger.info(f"[STANDINGS] ✅ Cricbuzz points table: parsed {len(teams)} teams")
     return {
         "season": season,
         "source": "cricbuzz",
         "last_updated_utc": datetime.utcnow().isoformat() + "Z",
         "teams": teams,
     }
-
-
+ 
 def fetch_espn_points_table(season: int) -> Dict[str, Any]:
     """
     Scrape the IPL points table.
