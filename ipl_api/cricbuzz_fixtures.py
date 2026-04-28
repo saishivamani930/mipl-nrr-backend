@@ -245,7 +245,7 @@ def _fetch_scorecard_innings(match_id: int) -> Optional[Dict[str, Any]]:
         return None
 
     def overs_to_balls(overs_str: str) -> int:
-        s = str(overs_str).strip()
+        s = str(overs_str).strip()  
         if "." in s:
             full, partial = s.split(".")
             return int(full) * 6 + int(partial)
@@ -331,9 +331,6 @@ def fetch_cricbuzz_ipl_results(
         date_key = f"{canonical}-{match_date}" if match_date else ""
         reverse_date_key = f"{reverse}-{match_date}" if match_date else ""
 
-        if canonical in fetched:
-            continue
-
         cb_match_id = (
             KNOWN_MATCH_IDS.get(date_key)
             or KNOWN_MATCH_IDS.get(reverse_date_key)
@@ -344,10 +341,12 @@ def fetch_cricbuzz_ipl_results(
             print(f"[CB] No match ID found for {canonical} — skipping", file=sys.stderr)
             continue
 
+        if cb_match_id in fetched:
+            continue
+
         time.sleep(random.uniform(0.5, 2.0))
         result = _fetch_scorecard_result(cb_match_id)
-        fetched.add(canonical)
-        fetched.add(reverse)
+        fetched.add(cb_match_id)
 
         if result:
             result["team1_code"] = t1
@@ -355,10 +354,11 @@ def fetch_cricbuzz_ipl_results(
             result["cb_match_id"] = cb_match_id
             result["match_date"] = pair
 
-            mid_key = str(cb_match_id)
-            result_map[mid_key] = result
-            result_map[canonical] = result
-            result_map[reverse] = result
+            result_map[str(cb_match_id)] = result
+            if date_key:
+                result_map[date_key] = result
+            if reverse_date_key:
+                result_map[reverse_date_key] = result
 
     print(f"[CB] Fetched results for {len([k for k in result_map if '-' not in k])} completed matches", file=sys.stderr)
     return result_map
