@@ -469,6 +469,96 @@ def fetch_cricbuzz_points_table(season: int) -> Optional[Dict[str, Any]]:
         "last_updated_utc": datetime.utcnow().isoformat() + "Z",
         "teams": teams,
     }
+
+def _enrich_with_innings_aggregates(standings_result: Dict[str, Any], season: int) -> Dict[str, Any]:
+    """
+    Takes a standings result that has NRR but no runs/balls aggregates
+    (e.g. from Cricbuzz points table scrape) and enriches each team entry
+    with runs_for, balls_for, runs_against, balls_against by fetching
+    Cricbuzz innings data for all completed matches.
+    """
+    from ipl_api.cricbuzz_fixtures import fetch_cricbuzz_innings_aggregates
+    from ipl_api.espn_fixtures import fetch_espn_fixtures, HARDCODED_IPL_2026_FIXTURES
+
+    try:
+        fixture_data = fetch_espn_fixtures(season)
+        fixtures = fixture_data.get("fixtures", [])
+    except Exception:
+        fixtures = HARDCODED_IPL_2026_FIXTURES
+
+    now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+    completed_pairs = []
+    for f in fixtures:
+        t1, t2, status = f.get("team1_code"), f.get("team2_code"), f.get("status")
+        if not t1 or not t2:
+            continue
+        try:
+            dt = datetime.fromisoformat(f["date"])
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            else:
+                dt = dt.astimezone(timezone.utc)
+            if dt > now_utc:
+                continue
+        except Exception:
+            if status == "upcoming":
+                continue
+        if status in ("completed", "live"):
+            date_only = f["date"][:10]
+            completed_pairs.append(f"{t1}-{t2}-{date_only}")
+
+    innings_map: Dict[str, Any] = {}
+    try:
+        cache_key = _cache.make_key("innings_aggregates", str(season))
+        innings_map = _cache.get(cache_key) or {}
+        if not innings_map:
+            innings_map = fetch_cricbuzz_innings_aggregates(completed_pairs)
+            if innings_map:
+                _cache.set(cache_key, innings_map, ttl_seconds=600)
+    except Exception as e:
+        logger.warning(f"[STANDINGS] _enrich innings fetch failed: {e}")
+        return standings_result  # return without enrichment rather than crash
+
+    # Build per-team aggregate totals
+    agg: Dict[str, Dict[str, int]] = {}
+    for f in fixtures:
+        t1 = f.get("team1_code")
+        t2 = f.get("team2_code")
+        status = f.get("status")
+        if not t1 or not t2 or status not in ("completed", "live"):
+            continue
+        try:
+            dt = datetime.fromisoformat(f["date"])
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            else:
+                dt = dt.astimezone(timezone.utc)
+            if dt > now_utc:
+                continue
+        except Exception:
+            if status == "upcoming":
+                continue
+
+        pair_key = f"{t1}-{t2}"
+        innings = innings_map.get(pair_key)
+        if not innings or t1 not in innings or t2 not in innings:
+            continue
+
+        for code, opp in [(t1, t2), (t2, t1)]:
+            if code not in agg:
+                agg[code] = {"runs_for": 0, "balls_for": 0, "runs_against": 0, "balls_against": 0}
+            agg[code]["runs_for"]      += innings[code]["runs"]
+            agg[code]["balls_for"]     += innings[code]["balls"]
+            agg[code]["runs_against"]  += innings[opp]["runs"]
+            agg[code]["balls_against"] += innings[opp]["balls"]
+
+    # Inject into standings teams list
+    for team in standings_result.get("teams", []):
+        code = team.get("code")
+        if code and code in agg:
+            team.update(agg[code])
+
+    return standings_result
  
 def fetch_espn_points_table(season: int) -> Dict[str, Any]:
     """
@@ -490,6 +580,7 @@ def fetch_espn_points_table(season: int) -> Dict[str, Any]:
         cb_result = fetch_cricbuzz_points_table(season)
         if cb_result and cb_result.get("teams"):
             logger.info(f"[STANDINGS] ✅ Cricbuzz primary succeeded — {len(cb_result['teams'])} teams")
+            cb_result = _enrich_with_innings_aggregates(cb_result, season)
             return cb_result
         else:
             logger.warning("[STANDINGS] Cricbuzz primary returned no teams, falling back to ESPN")
