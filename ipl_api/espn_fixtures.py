@@ -523,8 +523,6 @@ def fetch_espn_fixtures(season: int) -> dict:
         if f.get("winner_code") or f.get("status") == "no_result":
             continue
 
-        pair_key = f"{f['team1_code']}-{f['team2_code']}"
-        reverse_key = f"{f['team2_code']}-{f['team1_code']}"
         date_only = f["date"][:10]
         date_pair_key = f"{f['team1_code']}-{f['team2_code']}-{date_only}"
         date_reverse_key = f"{f['team2_code']}-{f['team1_code']}-{date_only}"
@@ -532,8 +530,6 @@ def fetch_espn_fixtures(season: int) -> dict:
         cb = (
             cricbuzz_map.get(date_pair_key)
             or cricbuzz_map.get(date_reverse_key)
-            or cricbuzz_map.get(pair_key)
-            or cricbuzz_map.get(reverse_key)
         )
 
         if not cb:
