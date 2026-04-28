@@ -495,7 +495,7 @@ def _run_one(
                 )
             )
 
-    final_table = compute_sorted_table(list(state.values()))
+    final_table = compute_sorted_table(list(state.values()), prefer_official_nrr=False)
     return final_table, all_metas
 
 

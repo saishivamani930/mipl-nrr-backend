@@ -348,7 +348,11 @@ def _parse_table_from_html(html: str, season: int) -> Optional[Dict[str, Any]]:
     }
 def fetch_cricbuzz_points_table(season: int) -> Optional[Dict[str, Any]]:
     """
-    Scrape IPL points table from Cricbuzz Next.js streamed data.
+    Scrape IPL points table from Cricbuzz.
+
+    Cricbuzz now renders the points table through Next.js streamed data
+    instead of a normal HTML <table>. So we parse pointsTableInfo from
+    pointsTableData embedded inside self.__next_f.push scripts.
     """
     import json
 
@@ -374,7 +378,6 @@ def fetch_cricbuzz_points_table(season: int) -> Optional[Dict[str, Any]]:
         depth = 0
         in_string = False
         escape = False
-        backslash = chr(92)
 
         for i in range(start, len(s)):
             ch = s[i]
@@ -383,7 +386,7 @@ def fetch_cricbuzz_points_table(season: int) -> Optional[Dict[str, Any]]:
                 escape = False
                 continue
 
-            if ch == backslash:
+            if ch == "\":
                 escape = True
                 continue
 
@@ -403,10 +406,9 @@ def fetch_cricbuzz_points_table(season: int) -> Optional[Dict[str, Any]]:
 
         return None
 
-    backslash = chr(92)
-
-    # Cricbuzz embeds JSON as escaped text inside Next.js stream scripts.
-    decoded = html.replace(backslash + '"', '"').replace(backslash + backslash + '/', '/')
+    # Cricbuzz embeds JSON inside escaped Next.js stream strings.
+    # Convert \" into " so normal JSON patterns can be searched.
+    decoded = html.replace('\"', '"').replace("\\/", "/")
 
     arr_text = _extract_json_array(decoded, '"pointsTableInfo":')
     if not arr_text:
@@ -460,7 +462,7 @@ def fetch_cricbuzz_points_table(season: int) -> Optional[Dict[str, Any]]:
         logger.warning("[STANDINGS] Cricbuzz Next.js parser produced 0 teams")
         return None
 
-    logger.info(f"[STANDINGS] Cricbuzz Next.js points table parsed {len(teams)} teams")
+    logger.info(f"[STANDINGS] ? Cricbuzz Next.js points table parsed {len(teams)} teams")
 
     return {
         "season": season,

@@ -92,18 +92,6 @@ def _to_int_or_none(x: object) -> Optional[int]:
         return None
 
 
-
-def _to_float_or_none(x: object) -> Optional[float]:
-    if x is None:
-        return None
-    try:
-        sx = str(x).strip().replace("−", "-")
-        if not sx or sx.lower() == "nan":
-            return None
-        return float(sx)
-    except Exception:
-        return None
-
 def state_from_standings(standings: dict, require_aggregates: bool = False) -> Dict[str, TeamRow]:
     """
     Convert ESPN standings JSON -> internal state (IPL-only).
@@ -133,7 +121,6 @@ def state_from_standings(standings: dict, require_aggregates: bool = False) -> D
         nr = _safe_int(t.get("nr", 0), 0)
         tied = _safe_int(t.get("tied", 0), 0)
         points = _safe_int(t.get("points", 0), 0)
-        official_nrr = _to_float_or_none(t.get("nrr"))
 
         rf = _to_int_or_none(t.get("runs_for"))
         bf = _to_int_or_none(t.get("balls_for"))
@@ -198,7 +185,6 @@ def state_from_standings(standings: dict, require_aggregates: bool = False) -> D
             tied=tied,
             points=points,
             agg=agg,
-            official_nrr=official_nrr,
         )
 
     return state

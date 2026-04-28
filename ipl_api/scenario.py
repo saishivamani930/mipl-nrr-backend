@@ -127,7 +127,7 @@ def _run_one_simulation(
             # Points-only update (fast for Monte Carlo)
             _apply_points_only(state, fx.team1, fx.team2, result=fx.result, winner=winner)
 
-    return compute_sorted_table(list(state.values()))
+    return compute_sorted_table(list(state.values()), prefer_official_nrr=False)
 
 
 def monte_carlo_qualification(

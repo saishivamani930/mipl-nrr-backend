@@ -27,28 +27,21 @@ def make_table_from_rows(rows: List[TeamRow]) -> Dict[str, TeamRow]:
     return {r.team: r for r in rows}
 
 
-def compute_sorted_table(rows: List[TeamRow], prefer_official_nrr: bool = True) -> List[dict]:
+def compute_sorted_table(rows: List[TeamRow]) -> List[dict]:
     """
     Returns points table sorted by:
-    1) Points desc
-    2) NRR desc
-
-    prefer_official_nrr=True  -> use scraped Cricbuzz/ESPN NRR
-    prefer_official_nrr=False -> recalculate NRR from aggregates after simulation
+    1) Points (desc)
+    2) NRR (desc)
     """
-    def row_nrr(r: TeamRow) -> float:
-        if prefer_official_nrr and r.official_nrr is not None:
-            return r.official_nrr
-        return nrr(r.agg)
+    def key_fn(r: TeamRow):
+        return (r.points, nrr(r.agg))
 
-    sorted_rows = sorted(
-        rows,
-        key=lambda r: (r.points, row_nrr(r)),
-        reverse=True,
-    )
+    sorted_rows = sorted(rows, key=key_fn, reverse=True)
 
-    return [
-        {
+    out: List[dict] = []
+    for idx, r in enumerate(sorted_rows, start=1):
+        out.append({
+            "pos": idx,
             "team": r.team,
             "played": r.played,
             "won": r.won,
@@ -56,14 +49,13 @@ def compute_sorted_table(rows: List[TeamRow], prefer_official_nrr: bool = True) 
             "nr": r.nr,
             "tied": r.tied,
             "points": r.points,
-            "nrr": round(row_nrr(r), 3),
+            "nrr": round(nrr(r.agg), 6),
             "runs_for": r.agg.runs_for,
             "balls_for": r.agg.balls_for,
             "runs_against": r.agg.runs_against,
             "balls_against": r.agg.balls_against,
-        }
-        for r in sorted_rows
-    ]
+        })
+    return out
 
 
 def apply_result(
