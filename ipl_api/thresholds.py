@@ -43,7 +43,7 @@ def _clone_state(state: Dict[str, TeamRow]) -> Dict[str, TeamRow]:
 
 
 def _pos_map(sorted_table: List[dict]) -> Dict[str, int]:
-    return {row["team"]: int(row["pos"]) for row in sorted_table}
+    return {row["team"]: i + 1 for i, row in enumerate(sorted_table)}
 
 
 def _is_above(sorted_table: List[dict], focus: str, competitor: str) -> bool:
