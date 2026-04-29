@@ -87,7 +87,7 @@ def simulate_match(
 
     if result == "NR":
         apply_result(row1, row2, result="NR", winner=None)
-        return compute_sorted_table(list(state.values()), prefer_official_nrr=False)
+        return compute_sorted_table(list(state.values()), prefer_official_nrr=True)
 
     has_innings = (
         team1_runs is not None and team1_overs is not None and
@@ -116,7 +116,11 @@ def simulate_match(
         if has_innings and int(team1_runs) != int(team2_runs):
             raise ValueError("result='TIE' requires equal scores when innings are provided")
         apply_result(row1, row2, result="TIE", winner=None)
-        return compute_sorted_table(list(state.values()), prefer_official_nrr=False)
+        from ipl_api.nrr_math import nrr as calc_nrr
+        for row in (row1, row2):
+            if row.agg.balls_for > 0 and row.agg.balls_against > 0:
+                row.official_nrr = calc_nrr(row.agg)
+        return compute_sorted_table(list(state.values()), prefer_official_nrr=True)
 
     if result != "WIN":
         raise ValueError(f"Invalid result: {result}")
@@ -137,4 +141,8 @@ def simulate_match(
         raise ValueError("winner is required when result='WIN' and innings do not determine winner")
 
     apply_result(row1, row2, result="WIN", winner=winner)
-    return compute_sorted_table(list(state.values()), prefer_official_nrr=False)
+    from ipl_api.nrr_math import nrr as calc_nrr
+    for row in (row1, row2):
+        if row.agg.balls_for > 0 and row.agg.balls_against > 0:
+            row.official_nrr = calc_nrr(row.agg)
+    return compute_sorted_table(list(state.values()), prefer_official_nrr=True)
