@@ -727,38 +727,9 @@ class ThresholdDefendWinRequest(BaseModel):
     source: Literal["live"] = Field("live")
     defending_team: str
     opponent_team: str
-    target_team: str         # ← rename from target_team, accept a list
+    target_team: str         
     defending_score: int = Field(..., ge=0)
     opponent_balls: int = Field(120, ge=1, le=120)
-
-@app.post("/api/thresholds/defend/max-opp-score")
-def api_defend_win_max_opp_score(req: ThresholdDefendWinRequest):
-    state = _load_live_state(req.season)
-    try:
-        defending = resolve_team_code(req.defending_team, state)
-        opp = resolve_team_code(req.opponent_team, state)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    results = []
-    for raw_target in req.target_teams:
-        try:
-            target = resolve_team_code(raw_target, state)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-        out = defend_win_max_opp_score(
-            base_state=state,
-            defending_team=defending,
-            opponent_team=opp,
-            target_team=target,
-            defending_score=req.defending_score,
-            assume_opp_balls=req.opponent_balls,
-        )
-        results.append(asdict(out))
-
-    return {"season": req.season, "input": req.model_dump(), "results": results}
-
 
 @app.post("/api/thresholds/defend/max-opp-score")
 def api_defend_win_max_opp_score(req: ThresholdDefendWinRequest):
@@ -779,6 +750,7 @@ def api_defend_win_max_opp_score(req: ThresholdDefendWinRequest):
         assume_opp_balls=req.opponent_balls,
     )
     return {"season": req.season, "input": req.model_dump(), "result": asdict(out)}
+
 
 
 class ThresholdChaseWinBallsRequest(BaseModel):
