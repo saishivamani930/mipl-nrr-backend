@@ -18,9 +18,6 @@ MAX_BALLS_T20 = 120
 
 
 def _clone_state(state: Dict[str, TeamRow]) -> Dict[str, TeamRow]:
-    """
-    Deep-ish copy: TeamRow + TeamAggregate copied so we don't mutate the original base_state.
-    """
     out: Dict[str, TeamRow] = {}
     for k, r in state.items():
         out[k] = TeamRow(
@@ -38,9 +35,9 @@ def _clone_state(state: Dict[str, TeamRow]) -> Dict[str, TeamRow]:
                 runs_against=r.agg.runs_against,
                 balls_against=r.agg.balls_against,
             ),
+            official_nrr=r.official_nrr,  # ← add this
         )
     return out
-
 
 def _pos_map(sorted_table: List[dict]) -> Dict[str, int]:
     return {row["team"]: i + 1 for i, row in enumerate(sorted_table)}
