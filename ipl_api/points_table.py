@@ -33,13 +33,18 @@ def compute_sorted_table(rows: List[TeamRow], prefer_official_nrr: bool = True) 
     1) Points desc
     2) NRR desc
 
-    prefer_official_nrr=True  -> use scraped Cricbuzz/ESPN NRR
-    prefer_official_nrr=False -> recalculate NRR from aggregates after simulation
+    For initial standings, prefer official scraped NRR.
+    For simulated standings, pass prefer_official_nrr=False.
     """
+
     def row_nrr(r: TeamRow) -> float:
         if prefer_official_nrr and r.official_nrr is not None:
             return r.official_nrr
-        return nrr(r.agg)
+        if r.agg.balls_for > 0 and r.agg.balls_against > 0:
+            return nrr(r.agg)
+        if r.official_nrr is not None:
+            return r.official_nrr
+        return 0.0
 
     sorted_rows = sorted(
         rows,
@@ -64,7 +69,6 @@ def compute_sorted_table(rows: List[TeamRow], prefer_official_nrr: bool = True) 
         }
         for r in sorted_rows
     ]
-
 
 def apply_result(
     row_a: TeamRow,
