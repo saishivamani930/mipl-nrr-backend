@@ -697,7 +697,7 @@ class ThresholdChaseLossRequest(BaseModel):
     source: Literal["live"] = Field("live")
     chasing_team: str
     opponent_team: str
-    target_team: List[str]
+    target_team: str
     target_score: int = Field(..., ge=0)
     assume_chase_balls: int = Field(120, ge=1, le=120)
 
@@ -727,7 +727,7 @@ class ThresholdDefendWinRequest(BaseModel):
     source: Literal["live"] = Field("live")
     defending_team: str
     opponent_team: str
-    target_team: List[str]          # ← rename from target_team, accept a list
+    target_team: str         # ← rename from target_team, accept a list
     defending_score: int = Field(..., ge=0)
     opponent_balls: int = Field(120, ge=1, le=120)
 
@@ -786,7 +786,7 @@ class ThresholdChaseWinBallsRequest(BaseModel):
     source: Literal["live"] = Field("live")
     chasing_team: str
     opponent_team: str
-    target_team: List[str]
+    target_team: str
     target_score: int = Field(..., ge=0)
 
 
@@ -814,7 +814,7 @@ class ThresholdDefendLossBallsRequest(BaseModel):
     source: Literal["live"] = Field("live")
     defending_team: str
     opponent_team: str
-    target_team: List[str]
+    target_team: str
     defending_score: int = Field(..., ge=0)
 
 
