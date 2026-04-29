@@ -579,9 +579,18 @@ def fetch_espn_points_table(season: int) -> Dict[str, Any]:
     try:
         cb_result = fetch_cricbuzz_points_table(season)
         if cb_result and cb_result.get("teams"):
-            logger.info(f"[STANDINGS] ✅ Cricbuzz primary succeeded — {len(cb_result['teams'])} teams")
             cb_result = _enrich_with_innings_aggregates(cb_result, season)
-            return cb_result
+            
+            # Only return if enrichment actually produced aggregate data
+            has_aggregates = any(
+                (t.get("balls_for") or 0) > 0
+                for t in cb_result.get("teams", [])
+            )
+            if has_aggregates:
+                logger.info(f"[STANDINGS] ✅ Cricbuzz + innings enrichment succeeded — {len(cb_result['teams'])} teams")
+                return cb_result
+            else:
+                logger.warning("[STANDINGS] Cricbuzz teams have no innings aggregates, falling back to ESPN for full For/Against data")
         else:
             logger.warning("[STANDINGS] Cricbuzz primary returned no teams, falling back to ESPN")
     except Exception as e:
