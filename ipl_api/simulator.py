@@ -87,7 +87,7 @@ def simulate_match(
 
     if result == "NR":
         apply_result(row1, row2, result="NR", winner=None)
-        return compute_sorted_table(list(state.values()), prefer_official_nrr=True)
+        return compute_sorted_table(list(state.values()), prefer_official_nrr=False)
 
     has_innings = (
         team1_runs is not None and team1_overs is not None and
@@ -120,7 +120,7 @@ def simulate_match(
         for row in (row1, row2):
             if row.agg.balls_for > 0 and row.agg.balls_against > 0:
                 row.official_nrr = calc_nrr(row.agg)
-        return compute_sorted_table(list(state.values()), prefer_official_nrr=True)
+        return compute_sorted_table(list(state.values()), prefer_official_nrr=False)
 
     if result != "WIN":
         raise ValueError(f"Invalid result: {result}")
@@ -145,4 +145,4 @@ def simulate_match(
     for row in (row1, row2):
         if row.agg.balls_for > 0 and row.agg.balls_against > 0:
             row.official_nrr = calc_nrr(row.agg)
-    return compute_sorted_table(list(state.values()), prefer_official_nrr=True)
+    return compute_sorted_table(list(state.values()), prefer_official_nrr=False)
