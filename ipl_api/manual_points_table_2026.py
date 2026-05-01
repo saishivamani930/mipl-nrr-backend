@@ -45,71 +45,71 @@ def agg(
 MANUAL_AGGREGATES_2026: Dict[str, ManualAggregate] = {
     "PBKS": agg(
         runs_for=1537,
-        overs_for=("132.0"),
+        overs_for=add_overs("132.0"),
         runs_against=1477,
-        overs_against=("139.2"),
+        overs_against=add_overs("139.2"),
     ),
 
     "RCB": agg(
         runs_for=1656,
-        overs_for=("156.1"),
+        overs_for=add_overs("156.1"),
         runs_against=1595,
-        overs_against=("173.4"),
+        overs_against=add_overs("173.4"),
     ),
 
     "SRH": agg(
         runs_for=1932,
-        overs_for=("177.1"),
+        overs_for=add_overs("177.1"),
         runs_against=1756,
-        overs_against=("174.2"),
+        overs_against=add_overs("174.2"),
     ),
 
     "RR": agg(
-        runs_for=1619,
-        overs_for=("160.3"),
-        runs_against=1602,
-        overs_against=("169.1"),
+        runs_for=1619+225,
+        overs_for=add_overs("160.3","20.0"),
+        runs_against=1602+226,
+        overs_against=add_overs("169.1","19.1"),
     ),
 
     "GT": agg(
         runs_for=1547,
-        overs_for=("170.5"),
+        overs_for=add_overs("170.5"),
         runs_against=1646,
-        overs_against=("178.0"),
+        overs_against=add_overs("178.0"),
     ),
 
     "CSK": agg(
         runs_for=1496,
-        overs_for=("160.0"),
+        overs_for=add_overs("160.0"),
         runs_against=1397,
-        overs_against=("147.3"),
+        overs_against=add_overs("147.3"),
     ),
 
     "DC": agg(
-        runs_for=1420,
-        overs_for=("155.1"),
-        runs_against=1484,
-        overs_against=("145.2"),
+        runs_for=1420+226,
+        overs_for=add_overs("155.1","19.1"),
+        runs_against=1484+225,
+        overs_against=add_overs("145.2","20.0"),
     ),
 
     "KKR": agg(
         runs_for=1218,
-        overs_for=("139.4"),
+        overs_for=add_overs("139.4"),
         runs_against=1315,
-        overs_against=("138.5"),
+        overs_against=add_overs("138.5"),
     ),
 
     "MI": agg(
         runs_for=1472,
-        overs_for=("150.1"),
+        overs_for=add_overs("150.1"),
         runs_against=1528,
-        overs_against=("144.2"),
+        overs_against=add_overs("144.2"),
     ),
 
     "LSG": agg(
         runs_for=1267,
-        overs_for=("159.5"),
+        overs_for=add_overs("159.5"),
         runs_against=1364,
-        overs_against=("151.0"),
+        overs_against=add_overs("151.0"),
     ),
 }
