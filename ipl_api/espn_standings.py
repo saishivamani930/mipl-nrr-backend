@@ -559,64 +559,107 @@ def _enrich_with_innings_aggregates(standings_result: Dict[str, Any], season: in
             team.update(agg[code])
 
     return standings_result
+
+def _apply_manual_aggregates(result: Dict[str, Any], season: int) -> Dict[str, Any]:
+    if season != 2026:
+        return result
+
+    try:
+        from ipl_api.manual_points_table_2026 import MANUAL_AGGREGATES_2026
+    except Exception as e:
+        logger.warning(f"[STANDINGS] Manual aggregate file not loaded: {e}")
+        return result
+
+    for team in result.get("teams", []):
+        code = str(team.get("code") or "").upper()
+        if code in MANUAL_AGGREGATES_2026:
+            team.update(MANUAL_AGGREGATES_2026[code])
+
+    result["source"] = f"{result.get('source', 'unknown')}_manual_aggregates"
+    return result
  
 def fetch_espn_points_table(season: int) -> Dict[str, Any]:
     """
     Scrape the IPL points table.
-    Priority: ESPN URL 1 → ESPN URL 2 → ESPN URL 3 → Cricbuzz → computed from fixtures
+
+    Correct priority:
+    1. ESPN first, because ESPN provides official For/Against aggregates.
+    2. Cricbuzz only as fallback if ESPN fails or does not provide aggregates.
+    3. Computed-from-fixtures only as final fallback.
     """
     last_error: Exception = StandingsScrapeError("No URLs tried")
- 
+
     urls = [
         ESPN_TABLE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season),
         f"https://www.espncricinfo.com/series/ipl-{season}-{IPL_SERIES_ID}/points-table-standings",
         f"https://www.espn.in/cricket/series/_/id/{IPL_SERIES_ID}/seasontype/2/standings",
     ]
- 
+
     logger.info(f"[STANDINGS] Starting fetch for season={season} at {datetime.utcnow().isoformat()}Z")
 
-    # ── Try Cricbuzz FIRST (has NRR directly) ────────────────────────────────
-    try:
-        cb_result = fetch_cricbuzz_points_table(season)
-        if cb_result and cb_result.get("teams"):
-            cb_result = _enrich_with_innings_aggregates(cb_result, season)
-            
-            # Only return if enrichment actually produced aggregate data
-            has_aggregates = any(
-                (t.get("balls_for") or 0) > 0
-                for t in cb_result.get("teams", [])
-            )
-            if has_aggregates:
-                logger.info(f"[STANDINGS] ✅ Cricbuzz + innings enrichment succeeded — {len(cb_result['teams'])} teams")
-                return cb_result
-            else:
-                logger.warning("[STANDINGS] Cricbuzz teams have no innings aggregates, falling back to ESPN for full For/Against data")
-        else:
-            logger.warning("[STANDINGS] Cricbuzz primary returned no teams, falling back to ESPN")
-    except Exception as e:
-        logger.error(f"[STANDINGS] Cricbuzz primary failed: {e}, falling back to ESPN")
-    # ── END ──────────────────────────────────────────────────────────────────
-
+    # 1) Try ESPN first
     for i, url in enumerate(urls, 1):
         try:
-            logger.info(f"[STANDINGS] Trying URL {i}/{len(urls)}: {url}")
+            logger.info(f"[STANDINGS] Trying ESPN URL {i}/{len(urls)}: {url}")
             html = _fetch_html(url)
             result = _parse_table_from_html(html, season)
+
             if result and result.get("teams"):
-                logger.info(f"[STANDINGS] ✅ Success from URL {i}: {url} — {len(result['teams'])} teams parsed")
-                return result
+                has_aggregates = any(
+                    (t.get("balls_for") or 0) > 0 and (t.get("balls_against") or 0) > 0
+                    for t in result.get("teams", [])
+                )
+
+                if has_aggregates:
+                    logger.info(
+                        f"[STANDINGS] ✅ ESPN success with For/Against aggregates — {len(result['teams'])} teams"
+                    )
+                    return result
+
+                logger.warning(
+                    f"[STANDINGS] ESPN URL {i} parsed teams but no For/Against aggregates. Trying next source."
+                )
             else:
-                logger.warning(f"[STANDINGS] ⚠️ URL {i} returned HTML but parsed 0 teams: {url}")
+                logger.warning(f"[STANDINGS] ESPN URL {i} parsed 0 teams: {url}")
+
         except Exception as e:
-            logger.error(f"[STANDINGS] ❌ URL {i} failed — {type(e).__name__}: {str(e)} | URL: {url}")
+            logger.error(
+                f"[STANDINGS] ESPN URL {i} failed — {type(e).__name__}: {str(e)} | URL: {url}"
+            )
             last_error = e
             continue
- 
-    
- 
-    logger.error(f"[STANDINGS] 💀 All sources failed. Falling back to fixture-derived standings.")
-    return compute_standings_from_fixtures(season)
 
+    # 2) Cricbuzz fallback only after ESPN fails
+    try:
+        logger.warning("[STANDINGS] ESPN aggregate data unavailable. Trying Cricbuzz fallback.")
+        cb_result = fetch_cricbuzz_points_table(season)
+
+        if cb_result and cb_result.get("teams"):
+            cb_result = _enrich_with_innings_aggregates(cb_result, season)
+
+            has_aggregates = any(
+                (t.get("balls_for") or 0) > 0 and (t.get("balls_against") or 0) > 0
+                for t in cb_result.get("teams", [])
+            )
+
+            if has_aggregates:
+                cb_result = _apply_manual_aggregates(cb_result, season)
+
+                logger.info(
+                    f"[STANDINGS] ✅ Cricbuzz points table loaded with manual aggregates — {len(cb_result['teams'])} teams"
+                )
+                return cb_result
+
+            logger.warning("[STANDINGS] Cricbuzz returned teams but no usable aggregates.")
+
+    except Exception as e:
+        logger.error(f"[STANDINGS] Cricbuzz fallback failed: {e}")
+
+    # 3) Final fallback
+    logger.error(
+        f"[STANDINGS] 💀 All official aggregate sources failed. Falling back to fixture-derived standings."
+    )
+    return compute_standings_from_fixtures(season)
 
 def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
     """Derive points table from fixture data when ESPN scraping fails."""

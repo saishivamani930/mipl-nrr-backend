@@ -486,3 +486,11 @@ def _get_headers() -> Dict[str, str]:
         "Connection": "keep-alive",
         "DNT": "1",
     }
+if __name__ == "__main__":
+    import requests
+    match_id = 151965  # GT-RCB Apr 30
+    url = f"https://www.cricbuzz.com/live-cricket-scores/{match_id}/"
+    r = requests.get(url, headers=_get_headers(), timeout=20)
+    with open("scorecard_debug.html", "w", encoding="utf-8") as f:
+        f.write(r.text)
+    print("saved to scorecard_debug.html")

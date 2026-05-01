@@ -101,6 +101,19 @@ def simulate_match(
         b1_norm = normalize_innings_balls(b1, bool(team1_all_out))
         b2_norm = normalize_innings_balls(b2, bool(team2_all_out))
 
+        print("[SIM DEBUG]", {
+        "team1": team1,
+        "team2": team2,
+        "team1_runs": team1_runs,
+        "team1_overs": team1_overs,
+        "team2_runs": team2_runs,
+        "team2_overs": team2_overs,
+        "b1_raw": b1,
+        "b2_raw": b2,
+        "b1_norm": b1_norm,
+        "b2_norm": b2_norm,
+})
+
         apply_match_batting_first(
             row1.agg,
             row2.agg,
@@ -145,4 +158,5 @@ def simulate_match(
     for row in (row1, row2):
         if row.agg.balls_for > 0 and row.agg.balls_against > 0:
             row.official_nrr = calc_nrr(row.agg)
+    
     return compute_sorted_table(list(state.values()), prefer_official_nrr=False)
