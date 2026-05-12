@@ -608,8 +608,8 @@ def fetch_espn_points_table(season: int) -> Dict[str, Any]:
             continue
 
     # ── Step 2: If ESPN completely fails, build from hardcoded fixtures + manual aggregates ──
-    logger.warning("[STANDINGS] ESPN failed. Building from hardcoded fixtures.")
-    return _build_from_hardcoded_with_manual_aggregates(season)
+    logger.warning("[STANDINGS] ESPN failed. Building from fixtures + Sheets.")
+    return compute_standings_from_fixtures(season)
 
 
 def _build_from_hardcoded_with_manual_aggregates(season: int) -> Dict[str, Any]:
