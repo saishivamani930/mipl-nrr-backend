@@ -7,3 +7,4 @@ lxml
 html5lib
 beautifulsoup4
 python-dotenv
+httpx

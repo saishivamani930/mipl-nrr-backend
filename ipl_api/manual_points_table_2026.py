@@ -111,5 +111,5 @@ MANUAL_AGGREGATES_2026: Dict[str, ManualAggregate] = {
         overs_for=add_overs("159.5"),
         runs_against=1364,
         overs_against=add_overs("151.0"),
-    ),
+    ),  
 }

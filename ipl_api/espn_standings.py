@@ -475,9 +475,9 @@ def _enrich_with_innings_aggregates(standings_result: Dict[str, Any], season: in
     Takes a standings result that has NRR but no runs/balls aggregates
     (e.g. from Cricbuzz points table scrape) and enriches each team entry
     with runs_for, balls_for, runs_against, balls_against by fetching
-    Cricbuzz innings data for all completed matches.
+    innings data from Google Sheets.
     """
-    from ipl_api.cricbuzz_fixtures import fetch_cricbuzz_innings_aggregates
+    from ipl_api.sheets_client import fetch_innings_from_sheet_sync
     from ipl_api.espn_fixtures import fetch_espn_fixtures, HARDCODED_IPL_2026_FIXTURES
 
     try:
@@ -509,10 +509,10 @@ def _enrich_with_innings_aggregates(standings_result: Dict[str, Any], season: in
 
     innings_map: Dict[str, Any] = {}
     try:
-        cache_key = _cache.make_key("innings_aggregates", str(season))
+        cache_key = _cache.make_key("innings_aggregates_sheet", str(season))
         innings_map = _cache.get(cache_key) or {}
         if not innings_map:
-            innings_map = fetch_cricbuzz_innings_aggregates(completed_pairs)
+            innings_map = fetch_innings_from_sheet_sync()
             if innings_map:
                 _cache.set(cache_key, innings_map, ttl_seconds=600)
     except Exception as e:
@@ -579,91 +579,121 @@ def _apply_manual_aggregates(result: Dict[str, Any], season: int) -> Dict[str, A
     return result
  
 def fetch_espn_points_table(season: int) -> Dict[str, Any]:
-    """
-    Scrape the IPL points table.
-
-    Correct priority:
-    1. ESPN first, because ESPN provides official For/Against aggregates.
-    2. Cricbuzz only as fallback if ESPN fails or does not provide aggregates.
-    3. Computed-from-fixtures only as final fallback.
-    """
+    # ── Step 0: Try ESPN for basic standings (points/wins, no aggregates needed) ──
     last_error: Exception = StandingsScrapeError("No URLs tried")
-
+    
     urls = [
         ESPN_TABLE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season),
         f"https://www.espncricinfo.com/series/ipl-{season}-{IPL_SERIES_ID}/points-table-standings",
         f"https://www.espn.in/cricket/series/_/id/{IPL_SERIES_ID}/seasontype/2/standings",
     ]
 
-    logger.info(f"[STANDINGS] Starting fetch for season={season} at {datetime.utcnow().isoformat()}Z")
-
-    # 1) Try ESPN first
     for i, url in enumerate(urls, 1):
         try:
-            logger.info(f"[STANDINGS] Trying ESPN URL {i}/{len(urls)}: {url}")
             html = _fetch_html(url)
             result = _parse_table_from_html(html, season)
-
             if result and result.get("teams"):
+                # ── Step 1: Inject manual aggregates immediately ──
+                result = _apply_manual_aggregates(result, season)
                 has_aggregates = any(
                     (t.get("balls_for") or 0) > 0 and (t.get("balls_against") or 0) > 0
                     for t in result.get("teams", [])
                 )
-
                 if has_aggregates:
-                    logger.info(
-                        f"[STANDINGS] ✅ ESPN success with For/Against aggregates — {len(result['teams'])} teams"
-                    )
+                    logger.info(f"[STANDINGS] ✅ ESPN + manual aggregates — {len(result['teams'])} teams")
                     return result
-
-                logger.warning(
-                    f"[STANDINGS] ESPN URL {i} parsed teams but no For/Against aggregates. Trying next source."
-                )
-            else:
-                logger.warning(f"[STANDINGS] ESPN URL {i} parsed 0 teams: {url}")
-
         except Exception as e:
-            logger.error(
-                f"[STANDINGS] ESPN URL {i} failed — {type(e).__name__}: {str(e)} | URL: {url}"
-            )
+            logger.error(f"[STANDINGS] ESPN URL {i} failed: {e}")
             last_error = e
             continue
 
-    # 2) Cricbuzz fallback only after ESPN fails
-    try:
-        logger.warning("[STANDINGS] ESPN aggregate data unavailable. Trying Cricbuzz fallback.")
-        cb_result = fetch_cricbuzz_points_table(season)
+    # ── Step 2: If ESPN completely fails, build from hardcoded fixtures + manual aggregates ──
+    logger.warning("[STANDINGS] ESPN failed. Building from hardcoded fixtures.")
+    return _build_from_hardcoded_with_manual_aggregates(season)
 
-        if cb_result and cb_result.get("teams"):
-            cb_result = _enrich_with_innings_aggregates(cb_result, season)
 
-            has_aggregates = any(
-                (t.get("balls_for") or 0) > 0 and (t.get("balls_against") or 0) > 0
-                for t in cb_result.get("teams", [])
-            )
+def _build_from_hardcoded_with_manual_aggregates(season: int) -> Dict[str, Any]:
+    """Build standings from HARDCODED_IPL_2026_FIXTURES + MANUAL_AGGREGATES_2026. Zero HTTP calls."""
+    from ipl_api.espn_fixtures import HARDCODED_IPL_2026_FIXTURES
 
-            if has_aggregates:
-                cb_result = _apply_manual_aggregates(cb_result, season)
+    TEAM_NAMES = {
+        "RCB": "Royal Challengers Bengaluru", "CSK": "Chennai Super Kings",
+        "MI": "Mumbai Indians", "KKR": "Kolkata Knight Riders",
+        "SRH": "Sunrisers Hyderabad", "RR": "Rajasthan Royals",
+        "DC": "Delhi Capitals", "PBKS": "Punjab Kings",
+        "LSG": "Lucknow Super Giants", "GT": "Gujarat Titans",
+    }
 
-                logger.info(
-                    f"[STANDINGS] ✅ Cricbuzz points table loaded with manual aggregates — {len(cb_result['teams'])} teams"
-                )
-                return cb_result
+    teams: Dict[str, Dict[str, Any]] = {}
+    for code, name in TEAM_NAMES.items():
+        teams[code] = {
+            "team": name, "code": code,
+            "matches": 0, "won": 0, "lost": 0, "nr": 0,
+            "points": 0, "nrr": None,
+        }
 
-            logger.warning("[STANDINGS] Cricbuzz returned teams but no usable aggregates.")
+    now_utc = datetime.now(timezone.utc)
 
-    except Exception as e:
-        logger.error(f"[STANDINGS] Cricbuzz fallback failed: {e}")
+    for f in HARDCODED_IPL_2026_FIXTURES:
+        t1, t2, status = f.get("team1_code"), f.get("team2_code"), f.get("status")
+        if not t1 or not t2 or t1 not in teams or t2 not in teams:
+            continue
+        try:
+            dt = datetime.fromisoformat(f["date"])
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            else:
+                dt = dt.astimezone(timezone.utc)
+            if dt > now_utc:
+                continue
+        except Exception:
+            if status == "upcoming":
+                continue
 
-    # 3) Final fallback
-    logger.error(
-        f"[STANDINGS] 💀 All official aggregate sources failed. Falling back to fixture-derived standings."
+        if status == "no_result":
+            teams[t1]["matches"] += 1
+            teams[t2]["matches"] += 1
+            teams[t1]["points"] += 1
+            teams[t2]["points"] += 1
+            teams[t1]["nr"] = teams[t1].get("nr", 0) + 1
+            teams[t2]["nr"] = teams[t2].get("nr", 0) + 1
+        elif status == "completed":
+            winner = f.get("winner_code")
+            if not winner:
+                continue
+            loser = t2 if winner == t1 else t1
+            teams[winner]["matches"] += 1
+            teams[loser]["matches"] += 1
+            teams[winner]["won"] += 1
+            teams[loser]["lost"] += 1
+            teams[winner]["points"] += 2
+
+    result = {
+        "season": season,
+        "source": "hardcoded_fixtures",
+        "last_updated_utc": datetime.utcnow().isoformat() + "Z",
+        "teams": list(teams.values()),
+    }
+
+    # Inject manual aggregates + NRR
+    result = _apply_manual_aggregates(result, season)
+
+    for team in result["teams"]:
+        rf, bf = team.get("runs_for", 0), team.get("balls_for", 0)
+        ra, ba = team.get("runs_against", 0), team.get("balls_against", 0)
+        if bf > 0 and ba > 0:
+            team["nrr"] = round((rf / bf * 6) - (ra / ba * 6), 3)
+
+    result["teams"] = sorted(
+        result["teams"],
+        key=lambda t: (-(t.get("points") or 0), -(t.get("nrr") or 0))
     )
-    return compute_standings_from_fixtures(season)
+
+    return result
 
 def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
     """Derive points table from fixture data when ESPN scraping fails."""
-    from ipl_api.cricbuzz_fixtures import fetch_cricbuzz_innings_aggregates
+    from ipl_api.sheets_client import fetch_innings_from_sheet_sync
 
     try:
         fixture_data = fetch_espn_fixtures(season)
@@ -712,18 +742,18 @@ def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
             date_only = f["date"][:10]
             completed_pairs.append(f"{t1}-{t2}-{date_only}")
 
-    # Fetch innings aggregates from Cricbuzz scorecards (cached for 10 min)
+    # Fetch innings from Google Sheets (cached for 10 min)
     innings_map: Dict[str, Any] = {}
     try:
-        cache_key = _cache.make_key("innings_aggregates", str(season))
+        cache_key = _cache.make_key("innings_aggregates_sheet", str(season))
         innings_map = _cache.get(cache_key) or {}
         if not innings_map:
-            innings_map = fetch_cricbuzz_innings_aggregates(completed_pairs)
+            innings_map = fetch_innings_from_sheet_sync()
             if innings_map:
                 _cache.set(cache_key, innings_map, ttl_seconds=600)
-            logger.info(f"[STANDINGS] Innings fetched for {len(innings_map)//2} matches")
+            logger.info(f"[Sheets] Innings fetched for {len(innings_map)} matches")
         else:
-            logger.info(f"[STANDINGS] Innings served from cache ({len(innings_map)//2} matches)")
+            logger.info(f"[Sheets] Innings served from cache ({len(innings_map)} matches)")
     except Exception as e:
         logger.warning(f"[STANDINGS] Innings fetch failed (non-fatal): {e}")
 
@@ -761,8 +791,6 @@ def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
             if not winner:
                 continue
 
-
-
             loser = t2 if winner == t1 else t1
             teams[winner]["matches"] += 1
             teams[loser]["matches"] += 1
@@ -770,15 +798,10 @@ def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
             teams[loser]["lost"] += 1
             teams[winner]["points"] += 2
 
-
-
-
             # Add innings aggregates if available
             pair_key = f"{t1}-{t2}"
             innings = innings_map.get(pair_key)
             if innings and t1 in innings and t2 in innings:
-                # innings[tX]["runs"] and innings[tX]["balls"] are already keyed by team code
-                # so this assignment is correct regardless of batting order
                 print(f"[DEBUG NRR] {t1} vs {t2} | winner={winner} | innings={innings}", file=sys.stderr)
                 teams[t1]["runs_for"]      += innings[t1]["runs"]
                 teams[t1]["balls_for"]     += innings[t1]["balls"]
