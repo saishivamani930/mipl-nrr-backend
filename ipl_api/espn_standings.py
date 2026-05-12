@@ -514,7 +514,7 @@ def _enrich_with_innings_aggregates(standings_result: Dict[str, Any], season: in
         if not innings_map:
             innings_map = fetch_innings_from_sheet_sync()
             if innings_map:
-                _cache.set(cache_key, innings_map, ttl_seconds=600)
+                _cache.set(cache_key, innings_map, ttl_seconds=120)
     except Exception as e:
         logger.warning(f"[STANDINGS] _enrich innings fetch failed: {e}")
         return standings_result  # return without enrichment rather than crash
@@ -750,7 +750,7 @@ def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
         if not innings_map:
             innings_map = fetch_innings_from_sheet_sync()
             if innings_map:
-                _cache.set(cache_key, innings_map, ttl_seconds=600)
+                _cache.set(cache_key, innings_map, ttl_seconds=120)
             logger.info(f"[Sheets] Innings fetched for {len(innings_map)} matches")
         else:
             logger.info(f"[Sheets] Innings served from cache ({len(innings_map)} matches)")
