@@ -33,7 +33,7 @@ async def fetch_innings_from_sheet() -> dict[str, dict]:
     }
     Skips no_result rows and rows with missing data.
     """
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
         resp = await client.get(SHEET_CSV_URL)
         resp.raise_for_status()
 
