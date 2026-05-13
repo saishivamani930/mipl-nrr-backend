@@ -597,6 +597,33 @@ def _apply_manual_aggregates(result: Dict[str, Any], season: int) -> Dict[str, A
         "balls_against",
     ]
 
+    def has_aggregates(data: Dict[str, Any]) -> bool:
+        return all((data.get(k) or 0) > 0 for k in aggregate_keys)
+
+    def calc_nrr(data: Dict[str, Any]):
+        try:
+            rf = int(data.get("runs_for") or 0)
+            bf = int(data.get("balls_for") or 0)
+            ra = int(data.get("runs_against") or 0)
+            ba = int(data.get("balls_against") or 0)
+
+            if bf <= 0 or ba <= 0:
+                return None
+
+            return round((rf / bf * 6) - (ra / ba * 6), 3)
+        except Exception:
+            return None
+
+    def nrr_matches(displayed_nrr, aggregate_nrr) -> bool:
+        if displayed_nrr is None or aggregate_nrr is None:
+            return False
+        try:
+            return abs(float(displayed_nrr) - float(aggregate_nrr)) <= 0.02
+        except Exception:
+            return False
+
+    manual_used = False
+
     for team in result.get("teams", []):
         code = str(team.get("code") or "").upper()
         manual = MANUAL_AGGREGATES_2026.get(code)
@@ -604,20 +631,38 @@ def _apply_manual_aggregates(result: Dict[str, Any], season: int) -> Dict[str, A
         if not manual:
             continue
 
-        # Only fill manual values if sheet/enrichment did NOT already provide aggregates.
-        has_existing_aggregates = all(
-            (team.get(k) or 0) > 0
-            for k in aggregate_keys
-        )
+        displayed_nrr = team.get("nrr")
 
-        if has_existing_aggregates:
+        current_nrr = calc_nrr(team)
+        manual_nrr = calc_nrr(manual)
+
+        current_ok = has_aggregates(team) and nrr_matches(displayed_nrr, current_nrr)
+        manual_ok = has_aggregates(manual) and nrr_matches(displayed_nrr, manual_nrr)
+
+        # Case 1: Sheet/enriched aggregates are already correct
+        if current_ok:
             continue
 
-        for k in aggregate_keys:
-            if k in manual:
+        # Case 2: Current aggregates are missing or wrong, but manual matches displayed NRR
+        if manual_ok:
+            for k in aggregate_keys:
                 team[k] = manual[k]
+            manual_used = True
+            continue
 
-    result["source"] = f"{result.get('source', 'unknown')}_manual_fallback"
+        # Case 3: No valid aggregate source
+        # Do not blindly use stale manual data because simulation will become wrong.
+        logger.warning(
+            "[STANDINGS] No valid aggregates for %s. displayed_nrr=%s current_nrr=%s manual_nrr=%s",
+            code,
+            displayed_nrr,
+            current_nrr,
+            manual_nrr,
+        )
+
+    if manual_used:
+        result["source"] = f"{result.get('source', 'unknown')}_manual_fallback"
+
     return result
 
 def fetch_espn_points_table(season: int) -> Dict[str, Any]:
