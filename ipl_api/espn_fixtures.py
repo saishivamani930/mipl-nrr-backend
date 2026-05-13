@@ -429,6 +429,25 @@ def fetch_espn_fixtures(season: int) -> dict:
     if season <= 0:
         raise ValueError("season must be a positive integer")
 
+    # Primary source: Google Sheets fixtures tab
+    # This avoids changing Python code after every match.
+    try:
+        from ipl_api.sheets_fixtures_client import fetch_fixtures_from_sheet_sync
+
+        sheet_result = fetch_fixtures_from_sheet_sync(season)
+        if sheet_result.get("fixtures"):
+            print(
+                f"[FIXTURES] Using Google Sheets fixtures: {len(sheet_result['fixtures'])} matches",
+                file=sys.stderr,
+            )
+            return sheet_result
+
+    except Exception as e:
+        print(
+            f"[FIXTURES] Google Sheets fixtures failed, falling back to ESPN/Cricbuzz: {e}",
+            file=sys.stderr,
+        )
+
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; IPL-NRR-Sim/1.0)",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",

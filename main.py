@@ -256,7 +256,7 @@ def get_live_standings(season: int = DEFAULT_SEASON):
             data.get("teams", []),
             key=lambda t: (-(t.get("points") or 0), -(t.get("nrr") or 0))
         )
-        return {"source": "espn", "season": season, "stale": False, "data": data}
+        return {"source": data.get("source", "espn"), "season": season, "stale": False, "data": data}
 
     except StandingsScrapeError as e:
         cached_stale = cache_get(cache_key_stale)
