@@ -590,14 +590,36 @@ def _apply_manual_aggregates(result: Dict[str, Any], season: int) -> Dict[str, A
         logger.warning(f"[STANDINGS] Manual aggregate file not loaded: {e}")
         return result
 
+    aggregate_keys = [
+        "runs_for",
+        "balls_for",
+        "runs_against",
+        "balls_against",
+    ]
+
     for team in result.get("teams", []):
         code = str(team.get("code") or "").upper()
-        if code in MANUAL_AGGREGATES_2026:
-            team.update(MANUAL_AGGREGATES_2026[code])
+        manual = MANUAL_AGGREGATES_2026.get(code)
 
-    result["source"] = f"{result.get('source', 'unknown')}_manual_aggregates"
+        if not manual:
+            continue
+
+        # Only fill manual values if sheet/enrichment did NOT already provide aggregates.
+        has_existing_aggregates = all(
+            (team.get(k) or 0) > 0
+            for k in aggregate_keys
+        )
+
+        if has_existing_aggregates:
+            continue
+
+        for k in aggregate_keys:
+            if k in manual:
+                team[k] = manual[k]
+
+    result["source"] = f"{result.get('source', 'unknown')}_manual_fallback"
     return result
- 
+
 def fetch_espn_points_table(season: int) -> Dict[str, Any]:
     last_error: Exception = StandingsScrapeError("No URLs tried")
     best_basic_result = None
