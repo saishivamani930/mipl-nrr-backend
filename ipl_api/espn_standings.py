@@ -608,6 +608,7 @@ def fetch_espn_points_table(season: int) -> Dict[str, Any]:
         f"https://www.espn.in/cricket/series/_/id/{IPL_SERIES_ID}/seasontype/2/standings",
     ]
 
+    # 1. Try ESPN first
     for i, url in enumerate(urls, 1):
         try:
             html = _fetch_html(url)
@@ -622,10 +623,9 @@ def fetch_espn_points_table(season: int) -> Dict[str, Any]:
                 )
 
                 if has_aggregates:
-                    logger.info(f"[STANDINGS] ESPN/manual aggregates available — {len(result['teams'])} teams")
+                    logger.info(f"[STANDINGS] ESPN + aggregates available — {len(result['teams'])} teams")
                     return result
 
-                # Important: preserve ESPN/Cricbuzz displayed NRR instead of wiping it
                 has_nrr = any(t.get("nrr") is not None for t in result.get("teams", []))
                 if has_nrr:
                     best_basic_result = result
@@ -635,13 +635,27 @@ def fetch_espn_points_table(season: int) -> Dict[str, Any]:
             last_error = e
             continue
 
-    # If we got a normal points table with NRR, return it.
-    # Do NOT fall into computed fixtures and turn NRR into 0.000.
+    # 2. Try Cricbuzz points table for displayed NRR
+    try:
+        cricbuzz_result = fetch_cricbuzz_points_table(season)
+        if cricbuzz_result and cricbuzz_result.get("teams"):
+            try:
+                cricbuzz_result = _enrich_with_innings_aggregates(cricbuzz_result, season)
+            except Exception as e:
+                logger.warning(f"[STANDINGS] Cricbuzz enrichment failed, keeping Cricbuzz NRR: {e}")
+
+            logger.info(f"[STANDINGS] Returning Cricbuzz points table with displayed NRR")
+            return cricbuzz_result
+    except Exception as e:
+        logger.warning(f"[STANDINGS] Cricbuzz basic table failed: {e}")
+
+    # 3. If ESPN basic NRR exists, return that
     if best_basic_result is not None:
-        logger.warning("[STANDINGS] Returning basic standings with source NRR; aggregates unavailable.")
+        logger.warning("[STANDINGS] Returning ESPN basic standings with displayed NRR.")
         return best_basic_result
 
-    logger.warning("[STANDINGS] ESPN failed. Building from fixtures + Sheets.")
+    # 4. Last fallback only
+    logger.warning("[STANDINGS] ESPN/Cricbuzz failed. Building from fixtures + Sheets.")
     return compute_standings_from_fixtures(season)
 
 def _build_from_hardcoded_with_manual_aggregates(season: int) -> Dict[str, Any]:
