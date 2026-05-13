@@ -578,6 +578,11 @@ def _enrich_with_innings_aggregates(standings_result: Dict[str, Any], season: in
         if code and code in agg:
             team.update(agg[code])
 
+    if agg:
+        standings_result["source"] = (
+            f"{standings_result.get('source', 'unknown')}_google_sheets_aggregates"
+        )
+
     return standings_result
 
 def _apply_manual_aggregates(result: Dict[str, Any], season: int) -> Dict[str, Any]:

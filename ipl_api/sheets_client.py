@@ -24,7 +24,7 @@ import csv
 import io
 import logging
 
-import httpx
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +47,16 @@ def fetch_innings_from_sheet_sync() -> dict:
     Only rows with status == "completed" are included.
     Skips rows with missing/invalid data and logs a warning.
 
-    Raises httpx.HTTPError if the sheet cannot be fetched.
+    Raises requests.HTTPError if the sheet cannot be fetched.
     """
     logger.info("[Sheets] Fetching innings data from Google Sheets ...")
 
-    resp = httpx.get(SHEET_CSV_URL, timeout=15, follow_redirects=True)
+    resp = requests.get(
+        SHEET_CSV_URL,
+        timeout=15,
+        headers={"User-Agent": "Mozilla/5.0"},
+        allow_redirects=True,
+    )
     resp.raise_for_status()
 
     innings_map: dict = {}
@@ -94,10 +99,11 @@ def fetch_innings_from_sheet_sync() -> dict:
 
         # Keep old pair key only as fallback, example: RCB-LSG
         # setdefault prevents later repeated fixtures from overwriting the first one
-        innings = _lookup_innings_for_fixture(innings_map, t1, t2, f), {
+        pair_key = f"{t1}-{t2}"
+        innings_map.setdefault(pair_key, {
             t1: {"runs": t1_runs, "balls": t1_balls},
             t2: {"runs": t2_runs, "balls": t2_balls},
-        }
+        })
 
         parsed += 1
 
