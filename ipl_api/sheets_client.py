@@ -86,11 +86,19 @@ def fetch_innings_from_sheet_sync() -> dict:
             continue
 
         # pair_key matches how espn_standings.py builds it:  f"{t1}-{t2}"
-        pair_key = f"{t1}-{t2}"
-        innings_map[pair_key] = {
+        if match_key:
+            innings_map[match_key] = {
+                t1: {"runs": t1_runs, "balls": t1_balls},
+                t2: {"runs": t2_runs, "balls": t2_balls},
+            }
+
+        # Keep old pair key only as fallback, example: RCB-LSG
+        # setdefault prevents later repeated fixtures from overwriting the first one
+        innings = _lookup_innings_for_fixture(innings_map, t1, t2, f), {
             t1: {"runs": t1_runs, "balls": t1_balls},
             t2: {"runs": t2_runs, "balls": t2_balls},
         }
+
         parsed += 1
 
     logger.info(

@@ -469,6 +469,27 @@ def fetch_cricbuzz_points_table(season: int) -> Optional[Dict[str, Any]]:
         "teams": teams,
     }
 
+def _lookup_innings_for_fixture(innings_map: Dict[str, Any], t1: str, t2: str, fixture: Dict[str, Any]):
+    date_only = str(fixture.get("date", ""))[:10]
+
+    keys = []
+    if date_only:
+        keys.extend([
+            f"{t1}-{t2}-{date_only}",
+            f"{t2}-{t1}-{date_only}",
+        ])
+
+    keys.extend([
+        f"{t1}-{t2}",
+        f"{t2}-{t1}",
+    ])
+
+    for key in keys:
+        innings = innings_map.get(key)
+        if innings and t1 in innings and t2 in innings:
+            return innings
+
+    return None
 
 def _enrich_with_innings_aggregates(standings_result: Dict[str, Any], season: int) -> Dict[str, Any]:
     """
