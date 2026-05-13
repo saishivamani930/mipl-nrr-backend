@@ -560,8 +560,7 @@ def _enrich_with_innings_aggregates(standings_result: Dict[str, Any], season: in
             if status == "upcoming":
                 continue
 
-        pair_key = f"{t1}-{t2}"
-        innings = innings_map.get(pair_key)
+        innings = _lookup_innings_for_fixture(innings_map, t1, t2, f)
         if not innings or t1 not in innings or t2 not in innings:
             continue
 
@@ -600,9 +599,9 @@ def _apply_manual_aggregates(result: Dict[str, Any], season: int) -> Dict[str, A
     return result
  
 def fetch_espn_points_table(season: int) -> Dict[str, Any]:
-    # ── Step 0: Try ESPN for basic standings (points/wins, no aggregates needed) ──
     last_error: Exception = StandingsScrapeError("No URLs tried")
-    
+    best_basic_result = None
+
     urls = [
         ESPN_TABLE_URL_TEMPLATE.format(series_id=IPL_SERIES_ID, season=season),
         f"https://www.espncricinfo.com/series/ipl-{season}-{IPL_SERIES_ID}/points-table-standings",
@@ -613,25 +612,37 @@ def fetch_espn_points_table(season: int) -> Dict[str, Any]:
         try:
             html = _fetch_html(url)
             result = _parse_table_from_html(html, season)
+
             if result and result.get("teams"):
-                # ── Step 1: Inject manual aggregates immediately ──
                 result = _apply_manual_aggregates(result, season)
+
                 has_aggregates = any(
                     (t.get("balls_for") or 0) > 0 and (t.get("balls_against") or 0) > 0
                     for t in result.get("teams", [])
                 )
+
                 if has_aggregates:
-                    logger.info(f"[STANDINGS] ✅ ESPN + manual aggregates — {len(result['teams'])} teams")
+                    logger.info(f"[STANDINGS] ESPN/manual aggregates available — {len(result['teams'])} teams")
                     return result
+
+                # Important: preserve ESPN/Cricbuzz displayed NRR instead of wiping it
+                has_nrr = any(t.get("nrr") is not None for t in result.get("teams", []))
+                if has_nrr:
+                    best_basic_result = result
+
         except Exception as e:
             logger.error(f"[STANDINGS] ESPN URL {i} failed: {e}")
             last_error = e
             continue
 
-    # ── Step 2: If ESPN completely fails, build from hardcoded fixtures + manual aggregates ──
+    # If we got a normal points table with NRR, return it.
+    # Do NOT fall into computed fixtures and turn NRR into 0.000.
+    if best_basic_result is not None:
+        logger.warning("[STANDINGS] Returning basic standings with source NRR; aggregates unavailable.")
+        return best_basic_result
+
     logger.warning("[STANDINGS] ESPN failed. Building from fixtures + Sheets.")
     return compute_standings_from_fixtures(season)
-
 
 def _build_from_hardcoded_with_manual_aggregates(season: int) -> Dict[str, Any]:
     """Build standings from HARDCODED_IPL_2026_FIXTURES + MANUAL_AGGREGATES_2026. Zero HTTP calls."""
@@ -820,8 +831,7 @@ def compute_standings_from_fixtures(season: int) -> Dict[str, Any]:
             teams[winner]["points"] += 2
 
             # Add innings aggregates if available
-            pair_key = f"{t1}-{t2}"
-            innings = innings_map.get(pair_key)
+            innings = _lookup_innings_for_fixture(innings_map, t1, t2, f)
             if innings and t1 in innings and t2 in innings:
                 print(f"[DEBUG NRR] {t1} vs {t2} | winner={winner} | innings={innings}", file=sys.stderr)
                 teams[t1]["runs_for"]      += innings[t1]["runs"]
